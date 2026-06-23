@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "CasaDiLari",
-  description: "Cardápio online da CasaDiLari.",
+  title: "Pizza SaaS",
+  description: "Plataforma de pedidos e gestão para pizzarias.",
 };
 
 export default function RootLayout({
