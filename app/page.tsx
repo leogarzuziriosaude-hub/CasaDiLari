@@ -1,153 +1,83 @@
 "use client";
 
 import Image from "next/image";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { supabase } from "@/lib/supabase";
+import { useModalClose } from "@/lib/useModalClose";
+
+type TipoProduto = "pizza" | "bebida" | "sobremesa" | "combo" | "adicional";
+
+type OpcaoProduto = {
+  id: string;
+  nome: string;
+  preco: number;
+};
 
 type Produto = {
-  id: number;
+  id: string;
   nome: string;
   categoria: string;
   descricao: string;
-  tipo: "pizza" | "bebida" | "combo";
-  imagem: string;
-  destaque: string;
-  opcoes: {
-    nome: string;
-    preco: number;
-  }[];
+  tipo: TipoProduto;
+  destaque: boolean;
+  imagemUrl: string | null;
+  opcoes: OpcaoProduto[];
+};
+
+type Borda = {
+  id: string;
+  nome: string;
+  preco: number;
+};
+
+type Pizzaria = {
+  id: string;
+  nome: string;
+  whatsapp: string;
+  status_aberto: boolean;
+  tempo_entrega_min: number;
+  tempo_entrega_max: number;
+  mensagem_aviso: string | null;
+};
+
+type CategoriaBanco = {
+  id: string;
+  nome: string;
+};
+
+type ProdutoBanco = {
+  id: string;
+  categoria_id: string | null;
+  nome: string;
+  descricao: string | null;
+  tipo: string | null;
+  destaque: boolean | null;
+  imagem_url?: string | null;
+};
+
+type OpcaoBanco = {
+  id: string;
+  produto_id: string;
+  nome: string;
+  preco: number;
 };
 
 type ItemCarrinho = {
   id: string;
+  produtoId: string;
   nome: string;
-  tipo: "pizza" | "bebida" | "combo";
+  tipo: TipoProduto;
   opcao: string;
   preco: number;
   borda: string;
   precoBorda: number;
+  adicionais: {
+    nome: string;
+    preco: number;
+  }[];
   quantidade: number;
   observacao: string;
 };
-
-const WHATSAPP_PIZZARIA = "5521994073006";
-
-const produtos: Produto[] = [
-  {
-    id: 1,
-    nome: "Calabresa",
-    categoria: "Tradicionais",
-    descricao: "Molho de tomate, muçarela, calabresa, cebola e orégano.",
-    tipo: "pizza",
-    imagem:
-      "https://images.unsplash.com/photo-1513104890138-7c749659a591?auto=format&fit=crop&w=900&q=85",
-    destaque: "A queridinha da casa",
-    opcoes: [
-      { nome: "Média", preco: 39.9 },
-      { nome: "Grande", preco: 49.9 },
-      { nome: "Família", preco: 64.9 },
-    ],
-  },
-  {
-    id: 2,
-    nome: "Muçarela",
-    categoria: "Tradicionais",
-    descricao: "Molho de tomate, muçarela, tomate e orégano.",
-    tipo: "pizza",
-    imagem:
-      "https://images.unsplash.com/photo-1604382355076-af4b0eb60143?auto=format&fit=crop&w=900&q=85",
-    destaque: "Clássica e cremosa",
-    opcoes: [
-      { nome: "Média", preco: 36.9 },
-      { nome: "Grande", preco: 46.9 },
-      { nome: "Família", preco: 61.9 },
-    ],
-  },
-  {
-    id: 3,
-    nome: "Frango com Catupiry",
-    categoria: "Tradicionais",
-    descricao: "Molho de tomate, muçarela, frango desfiado, catupiry e orégano.",
-    tipo: "pizza",
-    imagem:
-      "https://images.unsplash.com/photo-1594007654729-407eedc4be65?auto=format&fit=crop&w=900&q=85",
-    destaque: "Bem recheada",
-    opcoes: [
-      { nome: "Média", preco: 42.9 },
-      { nome: "Grande", preco: 54.9 },
-      { nome: "Família", preco: 69.9 },
-    ],
-  },
-  {
-    id: 4,
-    nome: "Portuguesa",
-    categoria: "Tradicionais",
-    descricao: "Molho de tomate, muçarela, presunto, ovo, cebola, pimentão e orégano.",
-    tipo: "pizza",
-    imagem:
-      "https://images.unsplash.com/photo-1574071318508-1cdbab80d002?auto=format&fit=crop&w=900&q=85",
-    destaque: "Completa no capricho",
-    opcoes: [
-      { nome: "Média", preco: 43.9 },
-      { nome: "Grande", preco: 55.9 },
-      { nome: "Família", preco: 70.9 },
-    ],
-  },
-  {
-    id: 5,
-    nome: "Quatro Queijos",
-    categoria: "Especiais",
-    descricao: "Muçarela, provolone, parmesão, catupiry e orégano.",
-    tipo: "pizza",
-    imagem:
-      "https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?auto=format&fit=crop&w=900&q=85",
-    destaque: "Derretida e intensa",
-    opcoes: [
-      { nome: "Média", preco: 46.9 },
-      { nome: "Grande", preco: 59.9 },
-      { nome: "Família", preco: 74.9 },
-    ],
-  },
-  {
-    id: 6,
-    nome: "Coca-Cola 2L",
-    categoria: "Bebidas",
-    descricao: "Refrigerante Coca-Cola 2 litros.",
-    tipo: "bebida",
-    imagem:
-      "https://images.unsplash.com/photo-1629203851122-3726ecdf080e?auto=format&fit=crop&w=900&q=85",
-    destaque: "Gelada para acompanhar",
-    opcoes: [{ nome: "Unidade", preco: 14.9 }],
-  },
-  {
-    id: 7,
-    nome: "Guaraná 2L",
-    categoria: "Bebidas",
-    descricao: "Refrigerante Guaraná 2 litros.",
-    tipo: "bebida",
-    imagem:
-      "https://images.unsplash.com/photo-1554866585-cd94860890b7?auto=format&fit=crop&w=900&q=85",
-    destaque: "Sabor brasileiro",
-    opcoes: [{ nome: "Unidade", preco: 12.9 }],
-  },
-  {
-    id: 8,
-    nome: "Combo Família",
-    categoria: "Combos",
-    descricao: "1 pizza família tradicional + 1 refrigerante 2L.",
-    tipo: "combo",
-    imagem:
-      "https://images.unsplash.com/photo-1601924582970-9238bcb495d9?auto=format&fit=crop&w=900&q=85",
-    destaque: "Pedido pronto para dividir",
-    opcoes: [{ nome: "Combo", preco: 74.9 }],
-  },
-];
-
-const bordas = [
-  { nome: "Sem borda", preco: 0 },
-  { nome: "Catupiry", preco: 8 },
-  { nome: "Cheddar", preco: 8 },
-  { nome: "Chocolate", preco: 10 },
-];
 
 const formasPagamento = ["Pix", "Dinheiro", "Cartão de Crédito", "Cartão de Débito"];
 
@@ -158,15 +88,46 @@ function dinheiro(valor: number) {
   });
 }
 
+function normalizarTipo(tipo: string | null): TipoProduto {
+  if (
+    tipo === "bebida" ||
+    tipo === "sobremesa" ||
+    tipo === "combo" ||
+    tipo === "adicional"
+  ) {
+    return tipo;
+  }
+
+  return "pizza";
+}
+
+function iniciais(nome: string) {
+  return nome
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((parte) => parte[0])
+    .join("")
+    .toUpperCase();
+}
+
 export default function Home() {
+  const [pizzaria, setPizzaria] = useState<Pizzaria | null>(null);
+  const [produtos, setProdutos] = useState<Produto[]>([]);
+  const [bordas, setBordas] = useState<Borda[]>([]);
+  const [carregando, setCarregando] = useState(true);
+  const [erro, setErro] = useState("");
+
   const [carrinho, setCarrinho] = useState<ItemCarrinho[]>([]);
   const [categoriaSelecionada, setCategoriaSelecionada] = useState("Todos");
 
   const [produtoSelecionado, setProdutoSelecionado] = useState<Produto | null>(null);
-  const [opcaoSelecionada, setOpcaoSelecionada] = useState(produtos[0].opcoes[0]);
-  const [bordaSelecionada, setBordaSelecionada] = useState(bordas[0]);
+  const [opcaoSelecionada, setOpcaoSelecionada] = useState<OpcaoProduto | null>(null);
+  const [bordaSelecionada, setBordaSelecionada] = useState<Borda | null>(null);
+  const [adicionaisSelecionados, setAdicionaisSelecionados] = useState<string[]>([]);
   const [quantidade, setQuantidade] = useState(1);
   const [observacao, setObservacao] = useState("");
+  const [itemEditandoId, setItemEditandoId] = useState<string | null>(null);
 
   const [nomeCliente, setNomeCliente] = useState("");
   const [tipoEntrega, setTipoEntrega] = useState<"Entrega" | "Retirada">("Entrega");
@@ -175,18 +136,151 @@ export default function Home() {
   const [referencia, setReferencia] = useState("");
   const [formaPagamento, setFormaPagamento] = useState("Pix");
   const [troco, setTroco] = useState("");
+  const produtoModalRef = useRef<HTMLDivElement | null>(null);
 
-  const categorias = ["Todos", ...Array.from(new Set(produtos.map((produto) => produto.categoria)))];
-  const hero = produtos[0];
+  const fecharProduto = useCallback(() => {
+    setProdutoSelecionado(null);
+    setItemEditandoId(null);
+  }, []);
+
+  useModalClose(Boolean(produtoSelecionado), fecharProduto, produtoModalRef);
+
+  useEffect(() => {
+    async function carregarCardapio() {
+      setCarregando(true);
+      setErro("");
+
+      const { data: pizzariaData, error: pizzariaError } = await supabase
+        .from("pizzarias")
+        .select("id, nome, whatsapp, status_aberto, tempo_entrega_min, tempo_entrega_max, mensagem_aviso")
+        .eq("slug", "casadilari")
+        .single();
+
+      if (pizzariaError || !pizzariaData) {
+        setErro("Não foi possível carregar os dados da pizzaria.");
+        setCarregando(false);
+        return;
+      }
+
+      setPizzaria(pizzariaData);
+
+      const [categoriasResult, produtosComImagemResult, opcoesResult, bordasResult] = await Promise.all([
+        supabase
+          .from("categorias")
+          .select("id, nome")
+          .eq("pizzaria_id", pizzariaData.id)
+          .eq("ativo", true)
+          .order("ordem", { ascending: true }),
+        supabase
+          .from("produtos")
+          .select("id, categoria_id, nome, descricao, tipo, destaque, imagem_url")
+          .eq("pizzaria_id", pizzariaData.id)
+          .eq("ativo", true)
+          .order("ordem", { ascending: true }),
+        supabase
+          .from("produto_opcoes")
+          .select("id, produto_id, nome, preco")
+          .eq("ativo", true)
+          .order("ordem", { ascending: true }),
+        supabase
+          .from("bordas")
+          .select("id, nome, preco")
+          .eq("pizzaria_id", pizzariaData.id)
+          .eq("ativo", true)
+          .order("ordem", { ascending: true }),
+      ]);
+
+      const produtosResult = produtosComImagemResult.error?.message.includes("imagem_url")
+        ? await supabase
+            .from("produtos")
+            .select("id, categoria_id, nome, descricao, tipo, destaque")
+            .eq("pizzaria_id", pizzariaData.id)
+            .eq("ativo", true)
+            .order("ordem", { ascending: true })
+        : produtosComImagemResult;
+
+      const erroConsulta =
+        categoriasResult.error || produtosResult.error || opcoesResult.error || bordasResult.error;
+
+      if (erroConsulta) {
+        setErro("Não foi possível carregar o cardápio do banco de dados.");
+        setCarregando(false);
+        return;
+      }
+
+      const categoriasPorId = new Map(
+        ((categoriasResult.data ?? []) as CategoriaBanco[]).map((categoria) => [
+          categoria.id,
+          categoria.nome,
+        ])
+      );
+
+      const opcoesPorProduto = ((opcoesResult.data ?? []) as OpcaoBanco[]).reduce(
+        (mapa, opcao) => {
+          const opcoes = mapa.get(opcao.produto_id) ?? [];
+          opcoes.push({
+            id: opcao.id,
+            nome: opcao.nome,
+            preco: Number(opcao.preco),
+          });
+          mapa.set(opcao.produto_id, opcoes);
+          return mapa;
+        },
+        new Map<string, OpcaoProduto[]>()
+      );
+
+      const produtosMontados = ((produtosResult.data ?? []) as ProdutoBanco[])
+        .map((produto) => ({
+          id: produto.id,
+          nome: produto.nome,
+          categoria: produto.categoria_id
+            ? categoriasPorId.get(produto.categoria_id) ?? "Cardápio"
+            : "Cardápio",
+          descricao: produto.descricao ?? "",
+          tipo: normalizarTipo(produto.tipo),
+          destaque: Boolean(produto.destaque),
+          imagemUrl: produto.imagem_url ?? null,
+          opcoes: opcoesPorProduto.get(produto.id) ?? [],
+        }))
+        .filter((produto) => produto.opcoes.length > 0);
+
+      setProdutos(produtosMontados);
+      setBordas(((bordasResult.data ?? []) as Borda[]).map((borda) => ({
+        ...borda,
+        preco: Number(borda.preco),
+      })));
+      setCarregando(false);
+    }
+
+    carregarCardapio();
+  }, []);
+
+  const produtosDeVenda = useMemo(() => {
+    return produtos.filter((produto) => produto.tipo !== "adicional");
+  }, [produtos]);
+
+  const adicionais = useMemo(() => {
+    return produtos.filter((produto) => produto.tipo === "adicional");
+  }, [produtos]);
+
+  const categorias = useMemo(() => {
+    return ["Todos", ...Array.from(new Set(produtosDeVenda.map((produto) => produto.categoria)))];
+  }, [produtosDeVenda]);
+
+  const hero = produtosDeVenda[0] ?? null;
 
   const produtosFiltrados = useMemo(() => {
-    if (categoriaSelecionada === "Todos") return produtos;
-    return produtos.filter((produto) => produto.categoria === categoriaSelecionada);
-  }, [categoriaSelecionada]);
+    if (categoriaSelecionada === "Todos") return produtosDeVenda;
+    return produtosDeVenda.filter((produto) => produto.categoria === categoriaSelecionada);
+  }, [categoriaSelecionada, produtosDeVenda]);
 
   const total = useMemo(() => {
     return carrinho.reduce((soma, item) => {
-      return soma + (item.preco + item.precoBorda) * item.quantidade;
+      const totalAdicionais = item.adicionais.reduce(
+        (subtotal, adicional) => subtotal + adicional.preco,
+        0
+      );
+      return soma + (item.preco + item.precoBorda + totalAdicionais) * item.quantidade;
     }, 0);
   }, [carrinho]);
 
@@ -196,32 +290,69 @@ export default function Home() {
 
   function abrirProduto(produto: Produto) {
     setProdutoSelecionado(produto);
-    setOpcaoSelecionada(produto.opcoes[0]);
-    setBordaSelecionada(bordas[0]);
+    setOpcaoSelecionada(produto.opcoes[0] ?? null);
+    setBordaSelecionada(null);
+    setAdicionaisSelecionados([]);
     setQuantidade(1);
     setObservacao("");
+    setItemEditandoId(null);
   }
 
-  function fecharProduto() {
-    setProdutoSelecionado(null);
+  function editarItemCarrinho(item: ItemCarrinho) {
+    const produto =
+      produtos.find((produtoItem) => produtoItem.id === item.produtoId) ??
+      produtos.find((produtoItem) => produtoItem.nome === item.nome && produtoItem.tipo === item.tipo);
+
+    if (!produto) return;
+
+    setProdutoSelecionado(produto);
+    setOpcaoSelecionada(
+      produto.opcoes.find((opcao) => opcao.nome === item.opcao) ?? produto.opcoes[0] ?? null
+    );
+    setBordaSelecionada(bordas.find((borda) => borda.nome === item.borda) ?? null);
+    setAdicionaisSelecionados(
+      adicionais
+        .filter((adicional) => item.adicionais.some((itemAdicional) => itemAdicional.nome === adicional.nome))
+        .map((adicional) => adicional.id)
+    );
+    setQuantidade(item.quantidade);
+    setObservacao(item.observacao);
+    setItemEditandoId(item.id);
   }
 
   function adicionarAoCarrinho() {
-    if (!produtoSelecionado) return;
+    if (!produtoSelecionado || !opcaoSelecionada) return;
+
+    const borda = produtoSelecionado.tipo === "pizza" ? bordaSelecionada : null;
+    const adicionaisDoItem =
+      produtoSelecionado.tipo === "pizza"
+        ? adicionais
+            .filter((adicional) => adicionaisSelecionados.includes(adicional.id))
+            .map((adicional) => ({
+              nome: adicional.nome,
+              preco: adicional.opcoes[0]?.preco ?? 0,
+            }))
+        : [];
 
     const novoItem: ItemCarrinho = {
-      id: crypto.randomUUID(),
+      id: itemEditandoId ?? crypto.randomUUID(),
+      produtoId: produtoSelecionado.id,
       nome: produtoSelecionado.nome,
       tipo: produtoSelecionado.tipo,
       opcao: opcaoSelecionada.nome,
       preco: opcaoSelecionada.preco,
-      borda: produtoSelecionado.tipo === "pizza" ? bordaSelecionada.nome : "Sem borda",
-      precoBorda: produtoSelecionado.tipo === "pizza" ? bordaSelecionada.preco : 0,
+      borda: borda?.nome ?? "Sem borda",
+      precoBorda: borda?.preco ?? 0,
+      adicionais: adicionaisDoItem,
       quantidade,
       observacao,
     };
 
-    setCarrinho((atual) => [...atual, novoItem]);
+    setCarrinho((atual) =>
+      itemEditandoId
+        ? atual.map((item) => (item.id === itemEditandoId ? novoItem : item))
+        : [...atual, novoItem]
+    );
     fecharProduto();
   }
 
@@ -232,12 +363,19 @@ export default function Home() {
   function montarMensagemWhatsApp() {
     const itens = carrinho
       .map((item, index) => {
-        const subtotal = (item.preco + item.precoBorda) * item.quantidade;
+        const totalAdicionais = item.adicionais.reduce(
+          (soma, adicional) => soma + adicional.preco,
+          0
+        );
+        const subtotal = (item.preco + item.precoBorda + totalAdicionais) * item.quantidade;
 
         return [
           `${index + 1}. ${item.quantidade}x ${item.nome}`,
           `   Opção: ${item.opcao}`,
           item.tipo === "pizza" ? `   Borda: ${item.borda}` : null,
+          item.adicionais.length > 0
+            ? `   Adicionais: ${item.adicionais.map((adicional) => adicional.nome).join(", ")}`
+            : null,
           item.observacao ? `   Obs: ${item.observacao}` : null,
           `   Subtotal: ${dinheiro(subtotal)}`,
         ]
@@ -264,7 +402,7 @@ export default function Home() {
         : `Pagamento: ${formaPagamento}`;
 
     return [
-      "*NOVO PEDIDO - CasaDiLari*",
+      `*NOVO PEDIDO - ${pizzaria?.nome ?? "CasaDiLari"}*`,
       "",
       `Cliente: ${nomeCliente}`,
       "",
@@ -297,8 +435,15 @@ export default function Home() {
       return;
     }
 
+    const whatsapp = pizzaria?.whatsapp;
+
+    if (!whatsapp) {
+      alert("WhatsApp da pizzaria não encontrado.");
+      return;
+    }
+
     const mensagem = montarMensagemWhatsApp();
-    const url = `https://wa.me/${WHATSAPP_PIZZARIA}?text=${encodeURIComponent(mensagem)}`;
+    const url = `https://wa.me/${whatsapp}?text=${encodeURIComponent(mensagem)}`;
 
     window.location.href = url;
   }
@@ -319,7 +464,7 @@ export default function Home() {
 
               <div className="text-center">
                 <p className="text-xs font-black uppercase tracking-[0.22em] text-[#8b3b21]">
-                  CasaDiLari
+                  {pizzaria?.nome ?? "CasaDiLari"}
                 </p>
                 <h1 className="font-serif text-3xl font-black leading-none">Pizza</h1>
               </div>
@@ -332,105 +477,143 @@ export default function Home() {
 
             <div className="mt-8 grid items-center gap-5 sm:grid-cols-[1fr_240px]">
               <div>
-                <p className="text-sm font-bold text-[#8b3b21]">Aberto agora</p>
+                <p className="text-sm font-bold text-[#8b3b21]">
+                  {pizzaria?.status_aberto ? "Aberto agora" : "Fechado agora"}
+                </p>
                 <h2 className="mt-2 max-w-sm font-serif text-5xl font-black leading-[0.95]">
-                  Seu pedido favorito em poucos toques.
+                  {pizzaria?.mensagem_aviso ?? "Faça seu pedido pelo WhatsApp."}
                 </h2>
-                <button
-                  type="button"
-                  onClick={() => abrirProduto(hero)}
-                  className="mt-6 rounded-full bg-[#1d1009] px-6 py-3 text-sm font-black text-white shadow-xl shadow-[#8b3b21]/20 transition active:scale-95"
-                >
-                  Pedir calabresa
-                </button>
+                {pizzaria && (
+                  <p className="mt-4 text-sm font-bold text-[#8b3b21]">
+                    Entrega estimada: {pizzaria.tempo_entrega_min}-{pizzaria.tempo_entrega_max} min
+                  </p>
+                )}
               </div>
 
-              <div className="relative mx-auto aspect-square w-56 max-w-full sm:w-60">
-                <div className="absolute inset-7 rounded-full bg-white/60 shadow-inner" />
-                <Image
-                  src={hero.imagem}
-                  alt={hero.nome}
-                  fill
-                  sizes="(min-width: 640px) 240px, 224px"
-                  className="relative h-full w-full rounded-full object-cover shadow-2xl shadow-[#8b3b21]/30"
-                />
+              <div className="relative mx-auto grid aspect-square w-56 max-w-full place-items-center rounded-full bg-white/70 shadow-inner sm:w-60">
+                {hero?.imagemUrl ? (
+                  <Image
+                    src={hero.imagemUrl}
+                    alt={hero.nome}
+                    fill
+                    unoptimized
+                    sizes="(min-width: 640px) 240px, 224px"
+                    className="h-full w-full rounded-full object-cover shadow-2xl shadow-[#8b3b21]/30"
+                  />
+                ) : (
+                  <div className="grid h-40 w-40 place-items-center rounded-full bg-[#1d1009] text-5xl font-black text-white shadow-2xl shadow-[#8b3b21]/30">
+                    {hero ? iniciais(hero.nome) : "..."}
+                  </div>
+                )}
               </div>
             </div>
           </header>
 
           <div className="px-5 py-6 sm:px-8">
-            <div className="-mx-5 flex gap-3 overflow-x-auto px-5 pb-2 sm:-mx-8 sm:px-8">
-              {categorias.map((categoria) => (
-                <button
-                  type="button"
-                  key={categoria}
-                  onClick={() => setCategoriaSelecionada(categoria)}
-                  className={`shrink-0 rounded-full px-5 py-3 text-sm font-black transition ${
-                    categoriaSelecionada === categoria
-                      ? "bg-[#1d1009] text-white shadow-lg shadow-[#1d1009]/15"
-                      : "bg-white text-[#6d5a4a] shadow-sm"
-                  }`}
-                >
-                  {categoria}
-                </button>
-              ))}
-            </div>
-
-            <div className="mt-7 flex items-end justify-between gap-4">
-              <div>
-                <p className="text-xs font-black uppercase tracking-[0.2em] text-[#d14f2a]">
-                  Cardápio
-                </p>
-                <h2 className="mt-1 font-serif text-3xl font-black">
-                  Escolha sua pizza
-                </h2>
+            {carregando && (
+              <div className="rounded-[28px] bg-white p-5 text-sm font-bold text-[#8b7866] shadow-sm">
+                Carregando cardápio...
               </div>
-              <p className="text-sm font-bold text-[#8b7866]">{produtosFiltrados.length} itens</p>
-            </div>
+            )}
 
-            <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {produtosFiltrados.map((produto) => (
-                <article
-                  key={produto.id}
-                  className="group overflow-hidden rounded-[32px] bg-white shadow-[0_18px_40px_rgba(43,23,12,0.08)]"
-                >
-                  <button
-                    type="button"
-                    data-testid={`add-${produto.id}`}
-                    onClick={() => abrirProduto(produto)}
-                    className="block w-full text-left"
-                  >
-                    <div className="relative aspect-[1.15] overflow-hidden bg-[#f1e7d8]">
-                      <Image
-                        src={produto.imagem}
-                        alt={produto.nome}
-                        fill
-                        sizes="(min-width: 1280px) 260px, (min-width: 640px) 45vw, 100vw"
-                        className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
-                      />
-                      <span className="absolute left-4 top-4 rounded-full bg-white/90 px-3 py-2 text-xs font-black text-[#d14f2a] shadow-sm">
-                        {produto.destaque}
-                      </span>
-                    </div>
-                    <div className="p-5">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <h3 className="font-serif text-2xl font-black">{produto.nome}</h3>
-                          <p className="mt-2 line-clamp-2 text-sm leading-6 text-[#8b7866]">
-                            {produto.descricao}
-                          </p>
+            {erro && (
+              <div className="rounded-[28px] border border-red-200 bg-red-50 p-5 text-sm font-bold text-red-700">
+                {erro}
+              </div>
+            )}
+
+            {!carregando && !erro && produtos.length === 0 && (
+              <div className="rounded-[28px] bg-white p-5 text-sm font-bold text-[#8b7866] shadow-sm">
+                Nenhum produto ativo encontrado no banco de dados.
+              </div>
+            )}
+
+            {produtos.length > 0 && (
+              <>
+                <div className="-mx-5 flex gap-3 overflow-x-auto px-5 pb-2 sm:-mx-8 sm:px-8">
+                  {categorias.map((categoria) => (
+                    <button
+                      type="button"
+                      key={categoria}
+                      onClick={() => setCategoriaSelecionada(categoria)}
+                      className={`shrink-0 rounded-full px-5 py-3 text-sm font-black transition ${
+                        categoriaSelecionada === categoria
+                          ? "bg-[#1d1009] text-white shadow-lg shadow-[#1d1009]/15"
+                          : "bg-white text-[#6d5a4a] shadow-sm"
+                      }`}
+                    >
+                      {categoria}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="mt-7 flex items-end justify-between gap-4">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-[0.2em] text-[#d14f2a]">
+                      Cardápio
+                    </p>
+                    <h2 className="mt-1 font-serif text-3xl font-black">Escolha seu pedido</h2>
+                  </div>
+                  <p className="text-sm font-bold text-[#8b7866]">{produtosFiltrados.length} itens</p>
+                </div>
+
+                <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                  {produtosFiltrados.map((produto) => (
+                    <article
+                      key={produto.id}
+                      className="group overflow-hidden rounded-[32px] bg-white shadow-[0_18px_40px_rgba(43,23,12,0.08)]"
+                    >
+                      <button
+                        type="button"
+                        data-testid={`add-${produto.id}`}
+                        onClick={() => abrirProduto(produto)}
+                        className="block w-full text-left"
+                      >
+                        <div className="relative grid aspect-[1.15] place-items-center overflow-hidden bg-[#f1e7d8]">
+                          {produto.imagemUrl ? (
+                            <Image
+                              src={produto.imagemUrl}
+                              alt={produto.nome}
+                              fill
+                              unoptimized
+                              sizes="(min-width: 1280px) 260px, (min-width: 640px) 45vw, 100vw"
+                              className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
+                            />
+                          ) : (
+                            <div className="grid h-24 w-24 place-items-center rounded-full bg-[#1d1009] text-3xl font-black text-white transition duration-500 group-hover:scale-105">
+                              {iniciais(produto.nome)}
+                            </div>
+                          )}
+                          {produto.destaque && (
+                            <span className="absolute left-4 top-4 rounded-full bg-white/90 px-3 py-2 text-xs font-black text-[#d14f2a] shadow-sm">
+                              Destaque
+                            </span>
+                          )}
                         </div>
-                        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#f2552c] text-xl font-black text-white">
-                          +
-                        </span>
-                      </div>
-                      <p className="mt-5 text-xs font-bold text-[#8b7866]">A partir de</p>
-                      <p className="text-2xl font-black">{dinheiro(produto.opcoes[0].preco)}</p>
-                    </div>
-                  </button>
-                </article>
-              ))}
-            </div>
+                        <div className="p-5">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-xs font-black uppercase tracking-[0.14em] text-[#d14f2a]">
+                                {produto.categoria}
+                              </p>
+                              <h3 className="mt-1 font-serif text-2xl font-black">{produto.nome}</h3>
+                              <p className="mt-2 line-clamp-2 text-sm leading-6 text-[#8b7866]">
+                                {produto.descricao}
+                              </p>
+                            </div>
+                            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#f2552c] text-xl font-black text-white">
+                              +
+                            </span>
+                          </div>
+                          <p className="mt-5 text-xs font-bold text-[#8b7866]">A partir de</p>
+                          <p className="text-2xl font-black">{dinheiro(produto.opcoes[0].preco)}</p>
+                        </div>
+                      </button>
+                    </article>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         </section>
 
@@ -449,7 +632,7 @@ export default function Home() {
 
           {carrinho.length === 0 ? (
             <div className="mt-5 rounded-[28px] bg-[#fff8ea] p-5 text-sm font-semibold leading-6 text-[#8b7866]">
-              Seu carrinho está vazio. Toque em uma pizza para escolher tamanho, borda e quantidade.
+              Seu carrinho está vazio. Toque em um item do cardápio para escolher opção, borda e quantidade.
             </div>
           ) : (
             <div className="mt-5 space-y-3">
@@ -464,6 +647,11 @@ export default function Home() {
                         {item.opcao}
                         {item.tipo === "pizza" ? ` / ${item.borda}` : ""}
                       </p>
+                      {item.adicionais.length > 0 && (
+                        <p className="mt-1 text-xs font-semibold text-[#a1907f]">
+                          Adicionais: {item.adicionais.map((adicional) => adicional.nome).join(", ")}
+                        </p>
+                      )}
                       {item.observacao && (
                         <p className="mt-1 text-xs font-semibold text-[#a1907f]">
                           Obs: {item.observacao}
@@ -471,17 +659,31 @@ export default function Home() {
                       )}
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={() => removerItem(item.id)}
-                      className="rounded-full bg-white px-3 py-2 text-xs font-black text-[#d14f2a] shadow-sm"
-                    >
-                      Remover
-                    </button>
+                    <div className="grid gap-2">
+                      <button
+                        type="button"
+                        onClick={() => editarItemCarrinho(item)}
+                        className="rounded-full bg-white px-3 py-2 text-xs font-black text-[#1d1009] shadow-sm"
+                      >
+                        Editar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => removerItem(item.id)}
+                        className="rounded-full bg-white px-3 py-2 text-xs font-black text-[#d14f2a] shadow-sm"
+                      >
+                        Remover
+                      </button>
+                    </div>
                   </div>
 
                   <p className="mt-3 font-black">
-                    {dinheiro((item.preco + item.precoBorda) * item.quantidade)}
+                    {dinheiro(
+                      (item.preco +
+                        item.precoBorda +
+                        item.adicionais.reduce((soma, adicional) => soma + adicional.preco, 0)) *
+                        item.quantidade
+                    )}
                   </p>
                 </div>
               ))}
@@ -582,12 +784,15 @@ export default function Home() {
         </aside>
       </div>
 
-      {produtoSelecionado && (
+      {produtoSelecionado && opcaoSelecionada && (
         <div
           data-testid="product-modal"
           className="fixed inset-0 z-50 flex items-end bg-[#1d1009]/55 p-0 backdrop-blur-sm sm:items-center sm:justify-center sm:p-5"
         >
-          <div className="max-h-[92vh] w-full overflow-y-auto rounded-t-[40px] bg-[#fffaf2] shadow-2xl sm:max-w-xl sm:rounded-[40px]">
+          <div
+            ref={produtoModalRef}
+            className="max-h-[92vh] w-full overflow-y-auto rounded-t-[40px] bg-[#fffaf2] shadow-2xl sm:max-w-xl sm:rounded-[40px]"
+          >
             <div className="relative overflow-hidden bg-[#ffd65a] px-5 pb-8 pt-5">
               <div className="flex items-center justify-between">
                 <button
@@ -606,20 +811,27 @@ export default function Home() {
                 </button>
               </div>
 
-              <div className="relative mx-auto mt-6 aspect-square w-64 max-w-[78vw]">
-                <Image
-                  src={produtoSelecionado.imagem}
-                  alt={produtoSelecionado.nome}
-                  fill
-                  sizes="256px"
-                  className="h-full w-full rounded-full object-cover shadow-2xl shadow-[#8b3b21]/30"
-                />
+              <div className="relative mx-auto mt-6 grid aspect-square w-64 max-w-[78vw] place-items-center rounded-full bg-white/70">
+                {produtoSelecionado.imagemUrl ? (
+                  <Image
+                    src={produtoSelecionado.imagemUrl}
+                    alt={produtoSelecionado.nome}
+                    fill
+                    unoptimized
+                    sizes="256px"
+                    className="h-full w-full rounded-full object-cover shadow-2xl shadow-[#8b3b21]/30"
+                  />
+                ) : (
+                  <div className="grid h-44 w-44 place-items-center rounded-full bg-[#1d1009] text-5xl font-black text-white shadow-2xl shadow-[#8b3b21]/30">
+                    {iniciais(produtoSelecionado.nome)}
+                  </div>
+                )}
               </div>
             </div>
 
             <div className="px-5 pb-6 pt-6">
               <p className="text-center text-sm font-black uppercase tracking-[0.18em] text-[#d14f2a]">
-                {produtoSelecionado.destaque}
+                {produtoSelecionado.categoria}
               </p>
               <h2 className="mt-2 text-center font-serif text-4xl font-black">
                 {produtoSelecionado.nome}
@@ -629,15 +841,15 @@ export default function Home() {
               </p>
 
               <div className="mt-6">
-                <p className="mb-3 text-sm font-black">Tamanho</p>
+                <p className="mb-3 text-sm font-black">Opção</p>
                 <div className="grid grid-cols-3 gap-2">
                   {produtoSelecionado.opcoes.map((opcao) => (
                     <button
-                      key={opcao.nome}
+                      key={opcao.id}
                       type="button"
                       onClick={() => setOpcaoSelecionada(opcao)}
                       className={`rounded-2xl px-3 py-3 text-sm font-black ${
-                        opcaoSelecionada.nome === opcao.nome
+                        opcaoSelecionada.id === opcao.id
                           ? "bg-[#ffd65a] text-[#1d1009] shadow-sm"
                           : "bg-white text-[#8b7866]"
                       }`}
@@ -655,11 +867,15 @@ export default function Home() {
                   <div className="grid grid-cols-2 gap-2">
                     {bordas.map((borda) => (
                       <button
-                        key={borda.nome}
+                        key={borda.id}
                         type="button"
-                        onClick={() => setBordaSelecionada(borda)}
+                        onClick={() =>
+                          setBordaSelecionada((atual) =>
+                            atual?.id === borda.id ? null : borda
+                          )
+                        }
                         className={`rounded-2xl px-3 py-3 text-sm font-black ${
-                          bordaSelecionada.nome === borda.nome
+                          bordaSelecionada?.id === borda.id
                             ? "bg-[#1d1009] text-white"
                             : "bg-white text-[#8b7866]"
                         }`}
@@ -670,6 +886,38 @@ export default function Home() {
                         </span>
                       </button>
                     ))}
+                  </div>
+                </div>
+              )}
+
+              {produtoSelecionado.tipo === "pizza" && adicionais.length > 0 && (
+                <div className="mt-5">
+                  <p className="mb-3 text-sm font-black">Adicionais</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {adicionais.map((adicional) => {
+                      const selecionado = adicionaisSelecionados.includes(adicional.id);
+                      const preco = adicional.opcoes[0]?.preco ?? 0;
+
+                      return (
+                        <button
+                          key={adicional.id}
+                          type="button"
+                          onClick={() =>
+                            setAdicionaisSelecionados((atuais) =>
+                              selecionado
+                                ? atuais.filter((id) => id !== adicional.id)
+                                : [...atuais, adicional.id]
+                            )
+                          }
+                          className={`rounded-2xl px-3 py-3 text-sm font-black ${
+                            selecionado ? "bg-[#1d1009] text-white" : "bg-white text-[#8b7866]"
+                          }`}
+                        >
+                          {adicional.nome}
+                          <span className="ml-1 text-xs">+ {dinheiro(preco)}</span>
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -712,11 +960,16 @@ export default function Home() {
                 onClick={adicionarAoCarrinho}
                 className="mt-6 flex w-full items-center justify-between rounded-[24px] bg-[#1d1009] px-5 py-4 text-sm font-black text-white shadow-xl shadow-[#1d1009]/20 transition active:scale-95"
               >
-                <span>Adicionar ao carrinho</span>
+                <span>{itemEditandoId ? "Atualizar carrinho" : "Adicionar ao carrinho"}</span>
                 <span>
                   {dinheiro(
                     (opcaoSelecionada.preco +
-                      (produtoSelecionado.tipo === "pizza" ? bordaSelecionada.preco : 0)) *
+                      (produtoSelecionado.tipo === "pizza" ? bordaSelecionada?.preco ?? 0 : 0) +
+                      (produtoSelecionado.tipo === "pizza"
+                        ? adicionais
+                            .filter((adicional) => adicionaisSelecionados.includes(adicional.id))
+                            .reduce((soma, adicional) => soma + (adicional.opcoes[0]?.preco ?? 0), 0)
+                        : 0)) *
                       quantidade
                   )}
                 </span>

@@ -8,7 +8,14 @@ import { supabase } from "@/lib/supabase";
 const menuItems = [
   { label: "Início", href: "/admin/home" },
   { label: "Pedidos", href: "/admin/pedidos" },
-  { label: "Produtos", href: "/admin/produtos" },
+  {
+    label: "Produtos",
+    href: "/admin/produtos",
+    children: [
+      { label: "Cardápio", href: "/admin/produtos" },
+      { label: "Categorias", href: "/admin/produtos/categorias" },
+    ],
+  },
   { label: "Encomendas", href: "/admin/encomendas" },
   { label: "Configurações", href: "/admin/configuracoes" },
   { label: "Dashboard", href: "/admin/dashboard" },
@@ -33,6 +40,55 @@ function MenuIcon({ aberto }: { aberto: boolean }) {
         }`}
       />
     </span>
+  );
+}
+
+function MenuLinks({ pathname, fechar }: { pathname: string; fechar: () => void }) {
+  return (
+    <>
+      {menuItems.map((item) => {
+        const ativo = pathname === item.href || pathname.startsWith(`${item.href}/`);
+
+        return (
+          <div key={item.href}>
+            <Link
+              href={item.href}
+              onClick={fechar}
+              className={`block rounded-2xl border px-4 py-3 text-sm font-bold transition ${
+                ativo
+                  ? "border-[#ff7a3d] bg-[#ff7a3d] text-white shadow-lg shadow-[#ff7a3d]/20"
+                  : "border-white/10 bg-white/[0.03] text-zinc-300 hover:border-white/20 hover:bg-white/[0.06] hover:text-white"
+              }`}
+            >
+              {item.label}
+            </Link>
+
+            {item.children && ativo && (
+              <div className="mt-2 grid gap-1 pl-4">
+                {item.children.map((child) => {
+                  const childAtivo = pathname === child.href;
+
+                  return (
+                    <Link
+                      key={child.href}
+                      href={child.href}
+                      onClick={fechar}
+                      className={`rounded-xl px-4 py-2 text-sm font-bold transition ${
+                        childAtivo
+                          ? "bg-white text-[#1f120d]"
+                          : "text-zinc-400 hover:bg-white/[0.06] hover:text-white"
+                      }`}
+                    >
+                      {child.label}
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </>
   );
 }
 
@@ -116,24 +172,7 @@ export default function AdminPainelLayout({
           </div>
 
           <nav className="mt-6 flex flex-1 flex-col gap-2">
-            {menuItems.map((item) => {
-              const ativo = pathname === item.href;
-
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  onClick={() => setMenuAberto(false)}
-                  className={`rounded-2xl border px-4 py-3 text-sm font-bold transition ${
-                    ativo
-                      ? "border-[#ff7a3d] bg-[#ff7a3d] text-white shadow-lg shadow-[#ff7a3d]/20"
-                      : "border-white/10 bg-white/[0.03] text-zinc-300 hover:border-white/20 hover:bg-white/[0.06] hover:text-white"
-                  }`}
-                >
-                  {item.label}
-                </Link>
-              );
-            })}
+            <MenuLinks pathname={pathname} fechar={() => setMenuAberto(false)} />
           </nav>
 
           <button
@@ -211,24 +250,7 @@ export default function AdminPainelLayout({
           </div>
 
           <nav className="mt-6 flex flex-1 flex-col gap-2">
-            {menuItems.map((item) => {
-              const ativo = pathname === item.href;
-
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  onClick={() => setMenuAberto(false)}
-                  className={`rounded-2xl border px-4 py-3 text-sm font-bold transition ${
-                    ativo
-                      ? "border-[#ff7a3d] bg-[#ff7a3d] text-white shadow-lg shadow-[#ff7a3d]/20"
-                      : "border-white/10 bg-white/[0.03] text-zinc-300 hover:border-white/20 hover:bg-white/[0.06] hover:text-white"
-                  }`}
-                >
-                  {item.label}
-                </Link>
-              );
-            })}
+            <MenuLinks pathname={pathname} fechar={() => setMenuAberto(false)} />
           </nav>
 
           <button

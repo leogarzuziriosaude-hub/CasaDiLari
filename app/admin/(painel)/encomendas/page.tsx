@@ -1,19 +1,14 @@
-const blocos = [
-  {
-    titulo: "Agendamentos",
-    descricao: "Pedidos futuros para datas e horários escolhidos.",
-  },
-  {
-    titulo: "Regras",
-    descricao: "Janela de produção, limite por horário e bloqueios.",
-  },
-  {
-    titulo: "Notificações",
-    descricao: "Alertas para equipe quando a encomenda entrar na fila.",
-  },
-];
+"use client";
+
+import { useAdminPizzaria } from "@/lib/useAdminPizzaria";
 
 export default function EncomendasPage() {
+  const { pizzaria, erro, carregando } = useAdminPizzaria();
+
+  if (carregando) {
+    return <p className="text-sm text-zinc-400">Carregando encomendas...</p>;
+  }
+
   return (
     <div className="space-y-6">
       <section className="rounded-[32px] border border-white/10 bg-white/[0.04] p-6">
@@ -22,22 +17,31 @@ export default function EncomendasPage() {
         </p>
         <h1 className="mt-3 text-3xl font-black text-white">Pedidos programados</h1>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-300">
-          Aqui entram os pedidos agendados e as regras de atendimento para cada
-          unidade da rede.
+          Status real de encomendas cadastrado para {pizzaria?.nome ?? "a pizzaria"}.
         </p>
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-3">
-        {blocos.map((bloco) => (
-          <article
-            key={bloco.titulo}
-            className="rounded-[28px] border border-white/10 bg-white/[0.04] p-5"
-          >
-            <h2 className="text-lg font-black text-white">{bloco.titulo}</h2>
-            <p className="mt-2 text-sm leading-6 text-zinc-300">{bloco.descricao}</p>
+      {erro && (
+        <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-sm font-bold text-red-200">
+          {erro}
+        </div>
+      )}
+
+      {pizzaria && (
+        <section className="grid gap-4 lg:grid-cols-2">
+          <article className="rounded-[28px] border border-white/10 bg-white/[0.04] p-5">
+            <h2 className="text-lg font-black text-white">Encomendas</h2>
+            <p className="mt-3 text-4xl font-black text-white">
+              {pizzaria.permite_encomendas ? "Ativas" : "Inativas"}
+            </p>
           </article>
-        ))}
-      </section>
+
+          <article className="rounded-[28px] border border-white/10 bg-white/[0.04] p-5">
+            <h2 className="text-lg font-black text-white">Canal de atendimento</h2>
+            <p className="mt-3 text-2xl font-black text-white">{pizzaria.whatsapp}</p>
+          </article>
+        </section>
+      )}
     </div>
   );
 }
