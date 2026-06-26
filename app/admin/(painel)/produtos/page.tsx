@@ -8,18 +8,18 @@ import {
   useRef,
   useState,
 } from "react";
-import { supabase } from "@/lib/supabase";
 import { useAdminPizzaria } from "@/lib/useAdminPizzaria";
 import { useModalClose } from "@/lib/useModalClose";
 import { ConfirmDialog } from "@/lib/ConfirmDialog";
 import { FeedbackDialog } from "@/lib/FeedbackDialog";
 
 type TipoProduto = "pizza" | "bebida" | "sobremesa" | "combo" | "adicional";
-type TipoFiltro = "todos" | TipoProduto | "bordas";
+type FiltroCardapio = "todos" | "bordas" | string;
 
 type Categoria = {
   id: string;
   nome: string;
+  ordem?: number | null;
 };
 
 type ProdutoBanco = {
@@ -43,6 +43,11 @@ type Produto = ProdutoBanco & {
   categoria: string;
   precoInicial: number | null;
   opcoes: OpcaoBanco[];
+  comboProdutoIds?: string[];
+  comboProdutoOpcoes?: Record<string, string>;
+  comboDescontoTipo?: "percentual" | "valor";
+  comboDescontoValor?: number | null;
+  comboPrecoOriginal?: number | null;
 };
 
 type OpcaoForm = {
@@ -57,15 +62,78 @@ type Borda = {
   ordem: number | null;
 };
 
-const PRODUTOS_BUCKET = "product-images";
+function categoriasLocaisKey(pizzariaId: string) {
+  return `casadilari:categorias:${pizzariaId}`;
+}
 
-const tipos: { label: string; value: TipoProduto }[] = [
-  { label: "Pizza", value: "pizza" },
-  { label: "Bebida", value: "bebida" },
-  { label: "Sobremesa", value: "sobremesa" },
-  { label: "Combo", value: "combo" },
-  { label: "Adicionais", value: "adicional" },
-];
+function produtosLocaisKey(pizzariaId: string) {
+  return `casadilari:produtos:${pizzariaId}`;
+}
+
+function bordasLocaisKey(pizzariaId: string) {
+  return `casadilari:bordas:${pizzariaId}`;
+}
+
+function carregarCategoriasLocais(pizzariaId: string): Categoria[] {
+  if (typeof window === "undefined") return [];
+
+  try {
+    const valor = window.localStorage.getItem(categoriasLocaisKey(pizzariaId));
+    return valor ? (JSON.parse(valor) as Categoria[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function carregarProdutosLocais(pizzariaId: string): Produto[] {
+  if (typeof window === "undefined") return [];
+
+  try {
+    const valor = window.localStorage.getItem(produtosLocaisKey(pizzariaId));
+    return valor ? (JSON.parse(valor) as Produto[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function salvarProdutosLocais(pizzariaId: string, produtos: Produto[]) {
+  if (typeof window === "undefined") return;
+
+  window.localStorage.setItem(produtosLocaisKey(pizzariaId), JSON.stringify(produtos));
+}
+
+function salvarCategoriasLocais(pizzariaId: string, categorias: Categoria[]) {
+  if (typeof window === "undefined") return;
+
+  window.localStorage.setItem(categoriasLocaisKey(pizzariaId), JSON.stringify(categorias));
+}
+
+function carregarBordasLocais(pizzariaId: string): Borda[] {
+  if (typeof window === "undefined") return [];
+
+  try {
+    const valor = window.localStorage.getItem(bordasLocaisKey(pizzariaId));
+    return valor ? (JSON.parse(valor) as Borda[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function salvarBordasLocais(pizzariaId: string, bordas: Borda[]) {
+  if (typeof window === "undefined") return;
+
+  window.localStorage.setItem(bordasLocaisKey(pizzariaId), JSON.stringify(bordas));
+}
+
+function arquivoParaDataUrl(arquivo: File) {
+  return new Promise<string>((resolve, reject) => {
+    const leitor = new FileReader();
+
+    leitor.onload = () => resolve(String(leitor.result ?? ""));
+    leitor.onerror = () => reject(new Error("Nao foi possivel ler a foto."));
+    leitor.readAsDataURL(arquivo);
+  });
+}
 
 function dinheiro(valor: number) {
   return valor.toLocaleString("pt-BR", {
@@ -78,57 +146,45 @@ function precoNumero(valor: string) {
   return Number(valor.replace(/\./g, "").replace(",", "."));
 }
 
-function rotuloNome(tipo: TipoProduto) {
-  if (tipo === "pizza") return "Sabor";
-  if (tipo === "adicional") return "Nome do adicional";
-  return "Nome do produto";
+function normalizarTexto(valor: string) {
+  return valor
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
 }
 
-function rotuloTipo(tipo: string | null) {
-  const item = tipos.find((tipoItem) => tipoItem.value === tipo);
-  return item?.label ?? "Sem tipo";
+function categoriaEhAdicional(nomeCategoria: string) {
+  const palavras = normalizarTexto(nomeCategoria).split(/[^a-z0-9]+/).filter(Boolean);
+  return palavras.some((palavra) => palavra === "adicional" || palavra === "adicionais");
 }
 
-function opcoesIniciais(tipo: TipoProduto = "pizza"): OpcaoForm[] {
-  if (tipo === "adicional") return [{ nome: "Unidade", preco: "" }];
-  if (tipo === "combo") return [{ nome: "Combo", preco: "" }];
-  return [{ nome: "", preco: "" }];
+function categoriaEhCombo(nomeCategoria: string) {
+  const palavras = normalizarTexto(nomeCategoria).split(/[^a-z0-9]+/).filter(Boolean);
+  return palavras.some((palavra) => palavra === "combo" || palavra === "combos");
 }
 
-function normalizarTipoProduto(tipo: string | null): TipoProduto {
-  if (
-    tipo === "pizza" ||
-    tipo === "bebida" ||
-    tipo === "sobremesa" ||
-    tipo === "combo" ||
-    tipo === "adicional"
-  ) {
-    return tipo;
-  }
+function categoriaEhPizza(nomeCategoria: string) {
+  const palavras = normalizarTexto(nomeCategoria).split(/[^a-z0-9]+/).filter(Boolean);
+  return palavras.some((palavra) => palavra === "pizza" || palavra === "pizzas");
+}
+
+function inferirTipoTecnico(nomeCategoria: string): TipoProduto {
+  const categoriaNormalizada = normalizarTexto(nomeCategoria);
+
+  if (categoriaNormalizada.includes("bebida")) return "bebida";
+  if (categoriaNormalizada.includes("sobremesa")) return "sobremesa";
+  if (categoriaEhCombo(nomeCategoria)) return "combo";
+  if (categoriaEhAdicional(nomeCategoria)) return "adicional";
 
   return "pizza";
 }
 
-function mensagemErroProduto(mensagem?: string) {
-  if (!mensagem) return "Não foi possível salvar o produto.";
-
-  if (
-    mensagem.includes("permission denied") ||
-    mensagem.includes("violates row-level security")
-  ) {
-    return "O Supabase bloqueou a gravação. Rode o SQL de permissões/policies no Supabase e tente novamente.";
-  }
-
-  if (mensagem.includes("violates check constraint")) {
-    return "O banco ainda não aceita este tipo de produto. Rode o SQL atualizado para liberar sobremesa, combo e adicionais.";
-  }
-
-  if (mensagem.includes("imagem_url")) {
-    return "Para salvar foto, adicione a coluna imagem_url na tabela produtos.";
-  }
-
-  return mensagem;
+function opcoesIniciais(categoria = ""): OpcaoForm[] {
+  if (categoriaEhAdicional(categoria)) return [{ nome: "Unidade", preco: "" }];
+  if (categoriaEhCombo(categoria)) return [];
+  return [{ nome: "", preco: "" }];
 }
+
 
 export default function ProdutosPage() {
   const { pizzaria, erro, carregando } = useAdminPizzaria();
@@ -139,12 +195,15 @@ export default function ProdutosPage() {
   const [carregandoProdutos, setCarregandoProdutos] = useState(false);
   const [erroProdutos, setErroProdutos] = useState("");
 
-  const [tipoFiltro, setTipoFiltro] = useState<TipoFiltro>("todos");
+  const [filtroCardapio, setFiltroCardapio] = useState<FiltroCardapio>("todos");
 
   const [modalAberto, setModalAberto] = useState(false);
   const [produtoEditando, setProdutoEditando] = useState<Produto | null>(null);
   const [produtoParaExcluir, setProdutoParaExcluir] =
     useState<Produto | null>(null);
+  const [modalCategoriaAberto, setModalCategoriaAberto] = useState(false);
+  const [nomeCategoria, setNomeCategoria] = useState("");
+  const [salvandoCategoria, setSalvandoCategoria] = useState(false);
 
   const [modalBordaAberto, setModalBordaAberto] = useState(false);
   const [bordaEditando, setBordaEditando] = useState<Borda | null>(null);
@@ -158,7 +217,6 @@ export default function ProdutosPage() {
   const [salvandoBorda, setSalvandoBorda] = useState(false);
   const [excluindoBorda, setExcluindoBorda] = useState(false);
 
-  const [tipo, setTipo] = useState<TipoProduto>("pizza");
   const [categoriaId, setCategoriaId] = useState("");
   const [nome, setNome] = useState("");
   const [descricao, setDescricao] = useState("");
@@ -167,16 +225,19 @@ export default function ProdutosPage() {
   const [fotoPreview, setFotoPreview] = useState("");
   const [opcoes, setOpcoes] = useState<OpcaoForm[]>(opcoesIniciais());
   const [comboProdutoIds, setComboProdutoIds] = useState<string[]>([]);
+  const [comboProdutoOpcoes, setComboProdutoOpcoes] = useState<Record<string, string>>({});
+  const [comboCategoriaAberta, setComboCategoriaAberta] = useState<string | null>(null);
+  const [comboDescontoTipo, setComboDescontoTipo] = useState<"percentual" | "valor">("percentual");
+  const [comboDescontoValor, setComboDescontoValor] = useState("");
 
-  const [refreshKey, setRefreshKey] = useState(0);
 
   const modalRef = useRef<HTMLFormElement | null>(null);
   const modalBordaRef = useRef<HTMLFormElement | null>(null);
+  const modalCategoriaRef = useRef<HTMLFormElement | null>(null);
 
   const fecharModal = useCallback(() => {
     setModalAberto(false);
     setProdutoEditando(null);
-    setTipo("pizza");
     setCategoriaId("");
     setNome("");
     setDescricao("");
@@ -185,6 +246,10 @@ export default function ProdutosPage() {
     setFotoPreview("");
     setOpcoes(opcoesIniciais());
     setComboProdutoIds([]);
+    setComboProdutoOpcoes({});
+    setComboCategoriaAberta(null);
+    setComboDescontoTipo("percentual");
+    setComboDescontoValor("");
     setSalvando(false);
   }, []);
 
@@ -196,125 +261,38 @@ export default function ProdutosPage() {
     setSalvandoBorda(false);
   }, []);
 
+  const fecharModalCategoria = useCallback(() => {
+    setModalCategoriaAberto(false);
+    setNomeCategoria("");
+    setSalvandoCategoria(false);
+  }, []);
+
   useModalClose(modalAberto && !erroModal, fecharModal, modalRef);
   useModalClose(modalBordaAberto && !erroModal, fecharModalBorda, modalBordaRef);
+  useModalClose(modalCategoriaAberto && !erroModal, fecharModalCategoria, modalCategoriaRef);
 
   useEffect(() => {
-    async function carregarProdutos() {
+    function carregarProdutos() {
       if (!pizzaria) return;
 
       setCarregandoProdutos(true);
       setErroProdutos("");
 
-      const [
-        categoriasResult,
-        produtosComImagemResult,
-        opcoesResult,
-        bordasResult,
-      ] = await Promise.all([
-        supabase
-          .from("categorias")
-          .select("id, nome")
-          .eq("pizzaria_id", pizzaria.id)
-          .eq("ativo", true)
-          .order("ordem", { ascending: true }),
-        supabase
-          .from("produtos")
-          .select("id, categoria_id, nome, descricao, tipo, ativo, imagem_url")
-          .eq("pizzaria_id", pizzaria.id)
-          .eq("ativo", true)
-          .order("ordem", { ascending: true }),
-        supabase
-          .from("produto_opcoes")
-          .select("id, produto_id, nome, preco")
-          .eq("ativo", true)
-          .order("ordem", { ascending: true }),
-        supabase
-          .from("bordas")
-          .select("id, nome, preco, ordem")
-          .eq("pizzaria_id", pizzaria.id)
-          .eq("ativo", true)
-          .order("ordem", { ascending: true }),
-      ]);
-
-      const produtosResult = produtosComImagemResult.error?.message.includes(
-        "imagem_url"
-      )
-        ? await supabase
-            .from("produtos")
-            .select("id, categoria_id, nome, descricao, tipo, ativo")
-            .eq("pizzaria_id", pizzaria.id)
-            .eq("ativo", true)
-            .order("ordem", { ascending: true })
-        : produtosComImagemResult;
-
-      if (
-        categoriasResult.error ||
-        produtosResult.error ||
-        opcoesResult.error ||
-        bordasResult.error
-      ) {
-        setErroProdutos("Não foi possível carregar os produtos do banco.");
-        setCarregandoProdutos(false);
-        return;
-      }
-
-      const categoriasData = (categoriasResult.data ?? []) as Categoria[];
-      const categoriasPorId = new Map(
-        categoriasData.map((categoria) => [categoria.id, categoria.nome])
-      );
-
-      const opcoesPorProduto = ((opcoesResult.data ?? []) as OpcaoBanco[]).reduce(
-        (mapa, opcao) => {
-          const opcoesAtuais = mapa.get(opcao.produto_id) ?? [];
-
-          opcoesAtuais.push({
-            ...opcao,
-            preco: Number(opcao.preco),
-          });
-
-          mapa.set(opcao.produto_id, opcoesAtuais);
-          return mapa;
-        },
-        new Map<string, OpcaoBanco[]>()
-      );
-
+      const categoriasData = carregarCategoriasLocais(pizzaria.id);
       setCategorias(categoriasData);
-
-      setProdutos(
-        ((produtosResult.data ?? []) as ProdutoBanco[]).map((produto) => {
-          const produtoOpcoes = opcoesPorProduto.get(produto.id) ?? [];
-          const precos = produtoOpcoes.map((opcao) => Number(opcao.preco));
-
-          return {
-            ...produto,
-            categoria: produto.categoria_id
-              ? categoriasPorId.get(produto.categoria_id) ?? "Sem categoria"
-              : "Sem categoria",
-            precoInicial: precos.length > 0 ? Math.min(...precos) : null,
-            opcoes: produtoOpcoes,
-          };
-        })
-      );
-
-      setBordas(
-        ((bordasResult.data ?? []) as Borda[]).map((borda) => ({
-          ...borda,
-          preco: Number(borda.preco),
-        }))
-      );
-
+      setProdutos(carregarProdutosLocais(pizzaria.id));
+      setBordas(carregarBordasLocais(pizzaria.id));
       setCarregandoProdutos(false);
     }
 
     carregarProdutos();
-  }, [pizzaria, refreshKey]);
+  }, [pizzaria]);
 
   const produtosFiltrados = useMemo(() => {
-    if (tipoFiltro === "bordas") return [];
-    if (tipoFiltro === "todos") return produtos;
-    return produtos.filter((produto) => produto.tipo === tipoFiltro);
-  }, [produtos, tipoFiltro]);
+    if (filtroCardapio === "bordas") return [];
+    if (filtroCardapio === "todos") return produtos;
+    return produtos.filter((produto) => produto.categoria_id === filtroCardapio);
+  }, [filtroCardapio, produtos]);
 
   const gruposProdutos = useMemo(() => {
     const mapa = new Map<string, Produto[]>();
@@ -337,60 +315,159 @@ export default function ProdutosPage() {
   const produtosParaCombo = useMemo(() => {
     return produtos.filter((produto) => {
       if (produtoEditando?.id === produto.id) return false;
-      return produto.tipo !== "combo" && produto.tipo !== "adicional";
+      return !categoriaEhCombo(produto.categoria) && !categoriaEhAdicional(produto.categoria);
     });
   }, [produtoEditando, produtos]);
+
+  const produtosSelecionadosCombo = useMemo(() => {
+    return produtosParaCombo.filter((produto) => comboProdutoIds.includes(produto.id));
+  }, [comboProdutoIds, produtosParaCombo]);
+
+  const gruposProdutosParaCombo = useMemo(() => {
+    const mapa = new Map<string, Produto[]>();
+
+    produtosParaCombo.forEach((produto) => {
+      const lista = mapa.get(produto.categoria) ?? [];
+      lista.push(produto);
+      mapa.set(produto.categoria, lista);
+    });
+
+    return Array.from(mapa.entries()).map(([categoria, produtosDoGrupo]) => ({
+      categoria,
+      produtos: produtosDoGrupo,
+    }));
+  }, [produtosParaCombo]);
+
+  const comboSubtotal = useMemo(() => {
+    return produtosSelecionadosCombo.reduce(
+      (subtotal, produto) => {
+        const opcaoSelecionadaId = comboProdutoOpcoes[produto.id];
+        const opcaoSelecionada =
+          produto.opcoes.find((opcao) => opcao.id === opcaoSelecionadaId) ??
+          produto.opcoes[0];
+
+        return subtotal + Number(opcaoSelecionada?.preco ?? produto.precoInicial ?? 0);
+      },
+      0
+    );
+  }, [comboProdutoOpcoes, produtosSelecionadosCombo]);
+
+  const comboDescontoNumero = precoNumero(comboDescontoValor || "0");
+  const comboPrecoCalculado = useMemo(() => {
+    if (Number.isFinite(comboDescontoNumero) && comboDescontoNumero > 0) {
+      const desconto =
+        comboDescontoTipo === "percentual"
+          ? comboSubtotal * (comboDescontoNumero / 100)
+          : comboDescontoNumero;
+
+      return Math.max(0, comboSubtotal - desconto);
+    }
+
+    return comboSubtotal;
+  }, [comboDescontoNumero, comboDescontoTipo, comboSubtotal]);
+
+  const categoriaSelecionada = useMemo(() => {
+    return categorias.find((categoria) => categoria.id === categoriaId) ?? null;
+  }, [categoriaId, categorias]);
+
+  const categoriaSelecionadaNome = categoriaSelecionada?.nome ?? "";
+  const categoriaSelecionadaEhAdicional = categoriaEhAdicional(categoriaSelecionadaNome);
+  const categoriaSelecionadaEhCombo = categoriaEhCombo(categoriaSelecionadaNome);
 
   function mostrarErro(mensagem: string) {
     setErroProdutos(mensagem);
     setErroModal(mensagem);
   }
 
-  function trocarTipo(novoTipo: TipoProduto) {
-    setTipo(novoTipo);
-    setOpcoes(opcoesIniciais(novoTipo));
+  function abrirNovaCategoria() {
+    setNomeCategoria("");
+    setModalCategoriaAberto(true);
+  }
 
-    if (novoTipo !== "combo") {
-      setComboProdutoIds([]);
+  function salvarCategoria(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!pizzaria || !nomeCategoria.trim()) return;
+
+    const nomeFinal = nomeCategoria.trim();
+    const jaExiste = categorias.some(
+      (categoria) => normalizarTexto(categoria.nome) === normalizarTexto(nomeFinal)
+    );
+
+    if (jaExiste) {
+      mostrarErro("Ja existe uma categoria com esse nome.");
+      return;
     }
+
+    setSalvandoCategoria(true);
+
+    const proximaOrdem =
+      categorias.reduce(
+        (maiorOrdem, categoria) => Math.max(maiorOrdem, categoria.ordem ?? 0),
+        0
+      ) + 1;
+    const proximasCategorias = [
+      ...categorias,
+      {
+        id: `local-${crypto.randomUUID()}`,
+        nome: nomeFinal,
+        ordem: proximaOrdem,
+      },
+    ];
+
+    setCategorias(proximasCategorias);
+    salvarCategoriasLocais(pizzaria.id, proximasCategorias);
+    setSalvandoCategoria(false);
+    fecharModalCategoria();
   }
 
   function abrirNovoProduto() {
-    if (tipoFiltro === "bordas") {
+    if (filtroCardapio === "bordas") {
       abrirNovaBorda();
       return;
     }
 
-    const tipoInicial = tipoFiltro === "todos" ? "pizza" : tipoFiltro;
+    const categoriaInicialId = filtroCardapio === "todos" ? "" : filtroCardapio;
+    const categoriaInicialNome =
+      categorias.find((categoria) => categoria.id === categoriaInicialId)?.nome ?? "";
 
     setProdutoEditando(null);
-    setTipo(tipoInicial);
-    setCategoriaId("");
+    setCategoriaId(categoriaInicialId);
     setNome("");
     setDescricao("");
     setFotoUrl("");
     setFotoArquivo(null);
     setFotoPreview("");
-    setOpcoes(opcoesIniciais(tipoInicial));
+    setOpcoes(opcoesIniciais(categoriaInicialNome));
     setComboProdutoIds([]);
+    setComboProdutoOpcoes({});
+    setComboCategoriaAberta(null);
+    setComboDescontoTipo("percentual");
+    setComboDescontoValor("");
     setModalAberto(true);
   }
 
   function abrirEdicaoProduto(produto: Produto) {
-    const produtoTipo = normalizarTipoProduto(produto.tipo);
+    const nomeCategoria = produto.categoria_id
+      ? categorias.find((categoria) => categoria.id === produto.categoria_id)?.nome ?? ""
+      : "";
 
     setProdutoEditando(produto);
-    setTipo(produtoTipo);
     setCategoriaId(produto.categoria_id ?? "");
     setNome(produto.nome);
     setDescricao(produto.descricao ?? "");
     setFotoUrl(produto.imagem_url ?? "");
     setFotoArquivo(null);
     setFotoPreview(produto.imagem_url ?? "");
-    setComboProdutoIds([]);
+    setComboProdutoIds(produto.comboProdutoIds ?? []);
+    setComboProdutoOpcoes(produto.comboProdutoOpcoes ?? {});
+    setComboCategoriaAberta(null);
+    setComboDescontoTipo(produto.comboDescontoTipo ?? "percentual");
+    setComboDescontoValor(
+      produto.comboDescontoValor ? String(produto.comboDescontoValor).replace(".", ",") : ""
+    );
 
     setOpcoes(
-      produtoTipo === "adicional" && produto.opcoes.length > 0
+      categoriaEhAdicional(nomeCategoria) && produto.opcoes.length > 0
         ? [
             {
               nome: "Unidade",
@@ -402,7 +479,7 @@ export default function ProdutosPage() {
               nome: opcao.nome,
               preco: String(opcao.preco).replace(".", ","),
             }))
-          : opcoesIniciais(produtoTipo)
+          : opcoesIniciais(nomeCategoria)
     );
 
     setModalAberto(true);
@@ -440,70 +517,7 @@ export default function ProdutosPage() {
     setFotoUrl("");
   }
 
-  async function uploadFotoProduto(produtoId: string) {
-    if (!pizzaria || !fotoArquivo) return fotoUrl.trim() || null;
 
-    const extensao = fotoArquivo.name.split(".").pop()?.toLowerCase() || "jpg";
-    const caminho = `${pizzaria.id}/${produtoId}/${crypto.randomUUID()}.${extensao}`;
-
-    const { error } = await supabase.storage
-      .from(PRODUTOS_BUCKET)
-      .upload(caminho, fotoArquivo, {
-        cacheControl: "3600",
-        upsert: false,
-      });
-
-    if (error) {
-      throw new Error(
-        error.message.includes("Bucket not found")
-          ? "Bucket product-images não encontrado no Supabase Storage."
-          : "Não foi possível enviar a foto."
-      );
-    }
-
-    const { data } = supabase.storage
-      .from(PRODUTOS_BUCKET)
-      .getPublicUrl(caminho);
-
-    return data.publicUrl;
-  }
-
-  async function obterCategoriaAdicionaisId() {
-    if (!pizzaria) return null;
-
-    const categoriaExistente = categorias.find(
-      (categoria) => categoria.nome.trim().toLowerCase() === "adicionais"
-    );
-
-    if (categoriaExistente) return categoriaExistente.id;
-
-    const { count } = await supabase
-      .from("categorias")
-      .select("id", { count: "exact", head: true })
-      .eq("pizzaria_id", pizzaria.id);
-
-    const { data, error } = await supabase
-      .from("categorias")
-      .insert({
-        pizzaria_id: pizzaria.id,
-        nome: "Adicionais",
-        ativo: true,
-        ordem: (count ?? 0) + 1,
-      })
-      .select("id")
-      .single();
-
-    if (error || !data) {
-      throw new Error(
-        error?.message.includes("permission denied") ||
-          error?.message.includes("row-level security")
-          ? "O Supabase bloqueou a criação da categoria Adicionais. Rode o SQL de permissões/policies."
-          : "Não foi possível preparar a categoria Adicionais."
-      );
-    }
-
-    return data.id as string;
-  }
 
   function alterarOpcao(index: number, campo: keyof OpcaoForm, valor: string) {
     setOpcoes((atuais) =>
@@ -528,8 +542,12 @@ export default function ProdutosPage() {
 
     if (!pizzaria) return;
 
-    const opcoesParaSalvar =
-      tipo === "adicional"
+    const ehAdicional = categoriaSelecionadaEhAdicional;
+    const ehCombo = categoriaSelecionadaEhCombo;
+    const tipoTecnico = inferirTipoTecnico(categoriaSelecionadaNome);
+    const opcoesParaSalvar = ehCombo
+      ? [{ nome: "Combo", preco: String(comboPrecoCalculado).replace(".", ",") }]
+      : ehAdicional
         ? [{ nome: "Unidade", preco: opcoes[0]?.preco ?? "" }]
         : opcoes;
 
@@ -543,221 +561,96 @@ export default function ProdutosPage() {
           opcao.nome && Number.isFinite(opcao.preco) && opcao.preco > 0
       );
 
-    if (!nome.trim() || opcoesValidas.length === 0) {
-      mostrarErro("Informe o nome do produto e pelo menos uma opção com preço.");
+    if (!categoriaId) {
+      mostrarErro("Escolha uma categoria para o produto.");
       return;
     }
 
-    if (tipo === "combo" && comboProdutoIds.length === 0) {
+    if (!nome.trim() || opcoesValidas.length === 0) {
+      mostrarErro("Informe o nome do produto e pelo menos uma opcao com preco.");
+      return;
+    }
+
+    if (ehCombo && comboProdutoIds.length === 0) {
       mostrarErro("Selecione pelo menos um produto para montar o combo.");
+      return;
+    }
+
+    if (ehCombo && comboPrecoCalculado <= 0) {
+      mostrarErro("Selecione produtos com preco para montar o combo.");
       return;
     }
 
     setSalvando(true);
     setErroProdutos("");
 
-    let categoriaFinalId = categoriaId || null;
+    let imagemUrl = produtoEditando?.imagem_url ?? (fotoUrl.trim() || null);
 
-    if (tipo === "adicional") {
+    if (!ehAdicional && fotoArquivo) {
       try {
-        categoriaFinalId = await obterCategoriaAdicionaisId();
-      } catch (categoriaError) {
-        mostrarErro(
-          categoriaError instanceof Error
-            ? categoriaError.message
-            : "Não foi possível preparar a categoria Adicionais."
-        );
+        imagemUrl = await arquivoParaDataUrl(fotoArquivo);
+      } catch {
+        mostrarErro("Nao foi possivel carregar a foto.");
         setSalvando(false);
         return;
       }
     }
 
-    const produtoPayload: Record<string, string | number | boolean | null> = {
-      categoria_id: categoriaFinalId,
+    const produtoId = produtoEditando?.id ?? `local-${crypto.randomUUID()}`;
+    const opcoesProduto = opcoesValidas.map((opcao, index) => ({
+      id: `${produtoId}-opcao-${index + 1}` ,
+      produto_id: produtoId,
+      nome: opcao.nome,
+      preco: opcao.preco,
+    }));
+    const precos = opcoesProduto.map((opcao) => opcao.preco);
+    const produtoFinal: Produto = {
+      id: produtoId,
+      categoria_id: categoriaId,
+      categoria: categoriaSelecionadaNome,
       nome: nome.trim(),
-      descricao: tipo === "adicional" ? null : descricao.trim() || null,
-      tipo,
+      descricao: ehAdicional ? null : descricao.trim() || null,
+      tipo: tipoTecnico,
       ativo: true,
-      destaque: false,
+      imagem_url: ehAdicional ? null : imagemUrl,
+      precoInicial: precos.length > 0 ? Math.min(...precos) : null,
+      opcoes: opcoesProduto,
+      comboProdutoIds: ehCombo ? comboProdutoIds : undefined,
+      comboProdutoOpcoes: ehCombo ? comboProdutoOpcoes : undefined,
+      comboDescontoTipo: ehCombo ? comboDescontoTipo : undefined,
+      comboDescontoValor:
+        ehCombo && Number.isFinite(comboDescontoNumero) && comboDescontoNumero > 0
+          ? comboDescontoNumero
+          : null,
+      comboPrecoOriginal: ehCombo ? comboSubtotal : null,
     };
 
-    if (
-      tipo !== "adicional" &&
-      !fotoArquivo &&
-      (fotoUrl.trim() || produtoEditando?.imagem_url)
-    ) {
-      produtoPayload.imagem_url = fotoUrl.trim() || null;
-    }
+    const proximosProdutos = produtoEditando
+      ? produtos.map((produto) =>
+          produto.id === produtoEditando.id ? produtoFinal : produto
+        )
+      : [...produtos, produtoFinal];
 
-    let produtoId = produtoEditando?.id;
-
-    if (produtoEditando) {
-      const { error: produtoError } = await supabase
-        .from("produtos")
-        .update(produtoPayload)
-        .eq("id", produtoEditando.id)
-        .eq("pizzaria_id", pizzaria.id);
-
-      if (produtoError) {
-        mostrarErro(mensagemErroProduto(produtoError.message));
-        setSalvando(false);
-        return;
-      }
-
-      const { error: desativarOpcoesError } = await supabase
-        .from("produto_opcoes")
-        .update({ ativo: false })
-        .eq("produto_id", produtoEditando.id);
-
-      if (desativarOpcoesError) {
-        mostrarErro("Produto editado, mas não foi possível atualizar os preços.");
-        setSalvando(false);
-        return;
-      }
-    } else {
-      const { count } = await supabase
-        .from("produtos")
-        .select("id", { count: "exact", head: true })
-        .eq("pizzaria_id", pizzaria.id);
-
-      const { data: produtoCriado, error: produtoError } = await supabase
-        .from("produtos")
-        .insert({
-          ...produtoPayload,
-          pizzaria_id: pizzaria.id,
-          ordem: (count ?? 0) + 1,
-        })
-        .select("id")
-        .single();
-
-      if (produtoError || !produtoCriado) {
-        mostrarErro(mensagemErroProduto(produtoError?.message));
-        setSalvando(false);
-        return;
-      }
-
-      produtoId = produtoCriado.id;
-    }
-
-    if (!produtoId) {
-      mostrarErro("Não foi possível identificar o produto salvo.");
-      setSalvando(false);
-      return;
-    }
-
-    if (tipo !== "adicional" && fotoArquivo) {
-      try {
-        const imagemUrl = await uploadFotoProduto(produtoId);
-
-        const { error: imagemError } = await supabase
-          .from("produtos")
-          .update({ imagem_url: imagemUrl })
-          .eq("id", produtoId)
-          .eq("pizzaria_id", pizzaria.id);
-
-        if (imagemError) {
-          mostrarErro(
-            imagemError.message.includes("imagem_url")
-              ? "Foto enviada, mas adicione a coluna imagem_url na tabela produtos para salvar a imagem."
-              : "Foto enviada, mas não foi possível vincular a imagem ao produto."
-          );
-          setSalvando(false);
-          return;
-        }
-      } catch (uploadError) {
-        mostrarErro(
-          uploadError instanceof Error
-            ? uploadError.message
-            : "Não foi possível enviar a foto."
-        );
-        setSalvando(false);
-        return;
-      }
-    }
-
-    const { error: opcoesError } = await supabase.from("produto_opcoes").insert(
-      opcoesValidas.map((opcao, index) => ({
-        produto_id: produtoId,
-        nome: opcao.nome,
-        preco: opcao.preco,
-        ativo: true,
-        ordem: index + 1,
-      }))
-    );
-
-    if (opcoesError) {
-      mostrarErro("Produto salvo, mas não foi possível salvar os preços.");
-      setSalvando(false);
-      return;
-    }
-
-    if (tipo === "combo") {
-      const { error: limparComboError } = await supabase
-        .from("combo_produtos")
-        .delete()
-        .eq("combo_id", produtoId);
-
-      if (
-        limparComboError &&
-        !limparComboError.message.includes("combo_produtos")
-      ) {
-        mostrarErro(
-          "Produto salvo, mas não foi possível atualizar os itens do combo."
-        );
-        setSalvando(false);
-        return;
-      }
-
-      const { error: comboError } = await supabase.from("combo_produtos").insert(
-        comboProdutoIds.map((produtoIdSelecionado) => ({
-          combo_id: produtoId,
-          produto_id: produtoIdSelecionado,
-        }))
-      );
-
-      if (comboError) {
-        mostrarErro(
-          comboError.message.includes("combo_produtos")
-            ? "Para montar combos, crie a tabela combo_produtos no Supabase."
-            : "Produto salvo, mas não foi possível salvar os itens do combo."
-        );
-        setSalvando(false);
-        return;
-      }
-    }
-
+    setProdutos(proximosProdutos);
+    salvarProdutosLocais(pizzaria.id, proximosProdutos);
+    setSalvando(false);
     fecharModal();
-    setRefreshKey((atual) => atual + 1);
   }
 
-  async function confirmarExclusaoProduto() {
+  function confirmarExclusaoProduto() {
     if (!pizzaria || !produtoParaExcluir) return;
 
     setExcluindo(true);
-
-    const { error } = await supabase
-      .from("produtos")
-      .update({ ativo: false })
-      .eq("id", produtoParaExcluir.id)
-      .eq("pizzaria_id", pizzaria.id);
-
-    if (error) {
-      mostrarErro("Não foi possível excluir o produto.");
-      setExcluindo(false);
-      return;
-    }
-
-    await supabase
-      .from("produto_opcoes")
-      .update({ ativo: false })
-      .eq("produto_id", produtoParaExcluir.id);
-
+    const proximosProdutos = produtos.filter(
+      (produto) => produto.id !== produtoParaExcluir.id
+    );
+    setProdutos(proximosProdutos);
+    salvarProdutosLocais(pizzaria.id, proximosProdutos);
     setProdutoParaExcluir(null);
     setExcluindo(false);
-    setRefreshKey((atual) => atual + 1);
   }
 
-  async function salvarBorda(event: FormEvent<HTMLFormElement>) {
+  function salvarBorda(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     if (!pizzaria || !nomeBorda.trim()) return;
@@ -765,73 +658,41 @@ export default function ProdutosPage() {
     const precoFinal = precoNumero(precoBorda || "0");
 
     if (!Number.isFinite(precoFinal) || precoFinal < 0) {
-      mostrarErro("Informe um preço válido para a borda.");
+      mostrarErro("Informe um preco valido para a borda.");
       return;
     }
 
     setSalvandoBorda(true);
     setErroProdutos("");
 
-    if (bordaEditando) {
-      const { error } = await supabase
-        .from("bordas")
-        .update({
-          nome: nomeBorda.trim(),
-          preco: precoFinal,
-        })
-        .eq("id", bordaEditando.id)
-        .eq("pizzaria_id", pizzaria.id);
+    const bordaFinal: Borda = {
+      id: bordaEditando?.id ?? `local-${crypto.randomUUID()}`,
+      nome: nomeBorda.trim(),
+      preco: precoFinal,
+      ordem:
+        bordaEditando?.ordem ??
+        bordas.reduce((maiorOrdem, borda) => Math.max(maiorOrdem, borda.ordem ?? 0), 0) + 1,
+    };
 
-      if (error) {
-        mostrarErro("Não foi possível editar a borda.");
-        setSalvandoBorda(false);
-        return;
-      }
-    } else {
-      const { count } = await supabase
-        .from("bordas")
-        .select("id", { count: "exact", head: true })
-        .eq("pizzaria_id", pizzaria.id);
+    const proximasBordas = bordaEditando
+      ? bordas.map((borda) => (borda.id === bordaEditando.id ? bordaFinal : borda))
+      : [...bordas, bordaFinal];
 
-      const { error } = await supabase.from("bordas").insert({
-        pizzaria_id: pizzaria.id,
-        nome: nomeBorda.trim(),
-        preco: precoFinal,
-        ativo: true,
-        ordem: (count ?? 0) + 1,
-      });
-
-      if (error) {
-        mostrarErro("Não foi possível salvar a borda.");
-        setSalvandoBorda(false);
-        return;
-      }
-    }
-
+    setBordas(proximasBordas);
+    salvarBordasLocais(pizzaria.id, proximasBordas);
+    setSalvandoBorda(false);
     fecharModalBorda();
-    setRefreshKey((atual) => atual + 1);
   }
 
-  async function confirmarExclusaoBorda() {
+  function confirmarExclusaoBorda() {
     if (!pizzaria || !bordaParaExcluir) return;
 
     setExcluindoBorda(true);
-
-    const { error } = await supabase
-      .from("bordas")
-      .update({ ativo: false })
-      .eq("id", bordaParaExcluir.id)
-      .eq("pizzaria_id", pizzaria.id);
-
-    if (error) {
-      mostrarErro("Não foi possível excluir a borda.");
-      setExcluindoBorda(false);
-      return;
-    }
-
+    const proximasBordas = bordas.filter((borda) => borda.id !== bordaParaExcluir.id);
+    setBordas(proximasBordas);
+    salvarBordasLocais(pizzaria.id, proximasBordas);
     setBordaParaExcluir(null);
     setExcluindoBorda(false);
-    setRefreshKey((atual) => atual + 1);
   }
 
   function renderTabelaProdutos(titulo: string, listaProdutos: Produto[]) {
@@ -848,36 +709,26 @@ export default function ProdutosPage() {
           </div>
         )}
 
-        <div className="hidden grid-cols-[1.3fr_0.7fr_0.7fr_0.8fr_170px] gap-4 border-b border-white/10 px-5 py-3 text-xs font-black uppercase tracking-[0.16em] text-zinc-500 md:grid">
+        <div className="hidden grid-cols-[1.3fr_0.8fr_0.8fr_170px] gap-4 border-b border-white/10 px-5 py-3 text-xs font-black uppercase tracking-[0.16em] text-zinc-500 md:grid">
           <span>Produto</span>
-          <span>Tipo</span>
           <span>Categoria</span>
-          <span className="text-right">Preço inicial</span>
-          <span className="text-right">Ações</span>
+          <span className="text-right">Preco inicial</span>
+          <span className="text-right">Acoes</span>
         </div>
 
         {listaProdutos.map((produto) => (
           <article
             key={produto.id}
-            className="grid grid-cols-1 gap-4 border-b border-white/10 px-5 py-4 last:border-b-0 md:grid-cols-[1.3fr_0.7fr_0.7fr_0.8fr_170px] md:items-center"
+            className="grid grid-cols-1 gap-4 border-b border-white/10 px-5 py-4 last:border-b-0 md:grid-cols-[1.3fr_0.8fr_0.8fr_170px] md:items-center"
           >
             <div>
               <h3 className="text-base font-black text-white">{produto.nome}</h3>
               <p className="mt-1 line-clamp-2 text-sm leading-6 text-zinc-400">
-                {produto.descricao ?? "Sem descrição cadastrada"}
+                {produto.descricao ?? "Sem descricao cadastrada"}
               </p>
             </div>
 
             <div className="grid grid-cols-2 gap-3 md:contents">
-              <div>
-                <p className="text-xs font-black uppercase tracking-[0.14em] text-zinc-500 md:hidden">
-                  Tipo
-                </p>
-                <p className="mt-1 text-sm font-bold text-zinc-200 md:mt-0">
-                  {rotuloTipo(produto.tipo)}
-                </p>
-              </div>
-
               <div>
                 <p className="text-xs font-black uppercase tracking-[0.14em] text-zinc-500 md:hidden">
                   Categoria
@@ -889,11 +740,11 @@ export default function ProdutosPage() {
 
               <div className="col-span-2 md:col-span-1">
                 <p className="text-xs font-black uppercase tracking-[0.14em] text-zinc-500 md:hidden">
-                  Preço inicial
+                  Preco inicial
                 </p>
                 <p className="mt-1 text-left text-lg font-black text-white md:mt-0 md:text-right">
                   {produto.precoInicial === null
-                    ? "Sem preço"
+                    ? "Sem preco"
                     : dinheiro(produto.precoInicial)}
                 </p>
               </div>
@@ -941,20 +792,32 @@ export default function ProdutosPage() {
               Produtos
             </p>
 
-            <h1 className="mt-3 text-3xl font-black text-white">Cardápio</h1>
+            <h1 className="mt-3 text-3xl font-black text-white">Cardapio</h1>
 
             <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-300">
-              Cadastre pizzas, bebidas, sobremesas, combos e adicionais da operação.
+              Cadastre pizzas, bebidas, sobremesas, combos e adicionais da operacao.
             </p>
           </div>
 
-          <button
-            type="button"
-            onClick={abrirNovoProduto}
-            className="rounded-2xl bg-[#ff7a3d] px-5 py-3 text-sm font-black text-white transition hover:bg-[#ff6a26]"
-          >
-            {tipoFiltro === "bordas" ? "+ Adicionar borda" : "+ Adicionar produto"}
-          </button>
+          <div className="grid gap-2 sm:flex">
+            {filtroCardapio !== "bordas" && (
+              <button
+                type="button"
+                onClick={abrirNovaCategoria}
+                className="rounded-2xl border border-white/10 bg-white/[0.04] px-5 py-3 text-sm font-black text-zinc-100 transition hover:bg-white/[0.08]"
+              >
+                + Adicionar categoria
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={abrirNovoProduto}
+              className="rounded-2xl bg-[#ff7a3d] px-5 py-3 text-sm font-black text-white transition hover:bg-[#ff6a26]"
+            >
+              {filtroCardapio === "bordas" ? "+ Adicionar borda" : "+ Adicionar produto"}
+            </button>
+          </div>
         </div>
       </section>
 
@@ -971,15 +834,18 @@ export default function ProdutosPage() {
           <section className="flex gap-2 overflow-x-auto pb-1">
             {[
               { label: "Todos", value: "todos" as const },
-              ...tipos,
+              ...categorias.map((categoria) => ({
+                label: categoria.nome,
+                value: categoria.id,
+              })),
               { label: "Bordas", value: "bordas" as const },
             ].map((item) => (
               <button
                 key={item.value}
                 type="button"
-                onClick={() => setTipoFiltro(item.value)}
+                onClick={() => setFiltroCardapio(item.value)}
                 className={`shrink-0 rounded-2xl px-4 py-2 text-sm font-black transition ${
-                  tipoFiltro === item.value
+                  filtroCardapio === item.value
                     ? "bg-white text-[#1f120d]"
                     : "border border-white/10 bg-white/[0.04] text-zinc-300 hover:bg-white/[0.08]"
                 }`}
@@ -989,12 +855,12 @@ export default function ProdutosPage() {
             ))}
           </section>
 
-          {tipoFiltro === "bordas" ? (
+          {filtroCardapio === "bordas" ? (
             <section className="overflow-hidden rounded-[28px] border border-white/10 bg-white/[0.04]">
               <div className="hidden grid-cols-[1fr_0.8fr_170px] gap-4 border-b border-white/10 px-5 py-3 text-xs font-black uppercase tracking-[0.16em] text-zinc-500 md:grid">
                 <span>Borda</span>
-                <span className="text-right">Preço</span>
-                <span className="text-right">Ações</span>
+                <span className="text-right">Preco</span>
+                <span className="text-right">Acoes</span>
               </div>
 
               {bordas.map((borda) => (
@@ -1013,7 +879,7 @@ export default function ProdutosPage() {
 
                   <div>
                     <p className="text-xs font-black uppercase tracking-[0.14em] text-zinc-500 md:hidden">
-                      Preço
+                      Preco
                     </p>
                     <p className="mt-1 text-left text-lg font-black text-white md:mt-0 md:text-right">
                       {dinheiro(borda.preco)}
@@ -1046,7 +912,7 @@ export default function ProdutosPage() {
                 </div>
               )}
             </section>
-          ) : tipoFiltro === "todos" ? (
+          ) : filtroCardapio === "todos" ? (
             produtosFiltrados.length === 0 ? (
               renderTabelaProdutos("", [])
             ) : (
@@ -1077,8 +943,8 @@ export default function ProdutosPage() {
 
                 <h2 className="mt-2 text-2xl font-black text-white">
                   {produtoEditando
-                    ? "Editar item do cardápio"
-                    : "Adicionar ao cardápio"}
+                    ? "Editar item do cardapio"
+                    : "Adicionar ao cardapio"}
                 </h2>
               </div>
 
@@ -1094,46 +960,38 @@ export default function ProdutosPage() {
             <div className="mt-6 grid gap-4 md:grid-cols-2">
               <label>
                 <span className="mb-2 block text-sm font-black text-zinc-200">
-                  Tipo
+                  Categoria
                 </span>
                 <select
-                  value={tipo}
-                  onChange={(event) =>
-                    trocarTipo(event.target.value as TipoProduto)
-                  }
+                  value={categoriaId}
+                  onChange={(event) => {
+                    const proximaCategoriaId = event.target.value;
+                    const proximaCategoriaNome =
+                      categorias.find((categoria) => categoria.id === proximaCategoriaId)
+                        ?.nome ?? "";
+
+                    setCategoriaId(proximaCategoriaId);
+                    setOpcoes(opcoesIniciais(proximaCategoriaNome));
+
+                    if (!categoriaEhCombo(proximaCategoriaNome)) {
+                      setComboProdutoIds([]);
+                    }
+                  }}
                   className="h-12 w-full rounded-2xl border border-white/10 bg-[#0f0c0b] px-4 text-sm font-bold text-white outline-none focus:border-[#ff7a3d]"
+                  required
                 >
-                  {tipos.map((item) => (
-                    <option key={item.value} value={item.value}>
-                      {item.label}
+                  <option value="">Escolha uma categoria</option>
+                  {categorias.map((categoria) => (
+                    <option key={categoria.id} value={categoria.id}>
+                      {categoria.nome}
                     </option>
                   ))}
                 </select>
               </label>
 
-              {tipo !== "adicional" && (
-                <label>
-                  <span className="mb-2 block text-sm font-black text-zinc-200">
-                    Categoria
-                  </span>
-                  <select
-                    value={categoriaId}
-                    onChange={(event) => setCategoriaId(event.target.value)}
-                    className="h-12 w-full rounded-2xl border border-white/10 bg-[#0f0c0b] px-4 text-sm font-bold text-white outline-none focus:border-[#ff7a3d]"
-                  >
-                    <option value="">Sem categoria</option>
-                    {categorias.map((categoria) => (
-                      <option key={categoria.id} value={categoria.id}>
-                        {categoria.nome}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
-
               <label>
                 <span className="mb-2 block text-sm font-black text-zinc-200">
-                  {rotuloNome(tipo)}
+                  Nome do produto
                 </span>
                 <input
                   value={nome}
@@ -1142,11 +1000,11 @@ export default function ProdutosPage() {
                 />
               </label>
 
-              {tipo !== "adicional" && (
+              {!categoriaSelecionadaEhAdicional && (
                 <>
                   <label>
                     <span className="mb-2 block text-sm font-black text-zinc-200">
-                      Descrição
+                      Descricao
                     </span>
                     <input
                       value={descricao}
@@ -1166,7 +1024,7 @@ export default function ProdutosPage() {
                           // eslint-disable-next-line @next/next/no-img-element
                           <img
                             src={fotoPreview}
-                            alt="Prévia da foto"
+                            alt="Previa da foto"
                             className="h-full w-full object-cover"
                           />
                         ) : (
@@ -1201,7 +1059,7 @@ export default function ProdutosPage() {
 
                         <span className="text-xs font-bold leading-5 text-zinc-500">
                           Use uma imagem quadrada ou horizontal. No celular, este
-                          botão abre a galeria.
+                          botao abre a galeria.
                         </span>
                       </div>
                     </div>
@@ -1210,7 +1068,7 @@ export default function ProdutosPage() {
               )}
             </div>
 
-            {tipo === "combo" && (
+            {categoriaSelecionadaEhCombo && (
               <div className="mt-6 rounded-3xl border border-white/10 bg-white/[0.03] p-4">
                 <div className="flex flex-col gap-1">
                   <h3 className="text-sm font-black text-zinc-200">
@@ -1222,40 +1080,115 @@ export default function ProdutosPage() {
                 </div>
 
                 <div className="mt-4 grid gap-2">
-                  {produtosParaCombo.map((produto) => {
-                    const selecionado = comboProdutoIds.includes(produto.id);
+                  {gruposProdutosParaCombo.map((grupo) => {
+                    const aberto = comboCategoriaAberta === grupo.categoria;
 
                     return (
-                      <label
-                        key={produto.id}
-                        className={`flex cursor-pointer items-center justify-between gap-3 rounded-2xl border px-4 py-3 transition ${
-                          selecionado
-                            ? "border-[#ff7a3d] bg-[#ff7a3d]/15"
-                            : "border-white/10 bg-[#0f0c0b]"
-                        }`}
-                      >
-                        <span>
-                          <span className="block text-sm font-black text-white">
-                            {produto.nome}
+                      <div key={grupo.categoria} className="overflow-hidden rounded-2xl border border-white/10 bg-[#0f0c0b]">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setComboCategoriaAberta((atual) =>
+                              atual === grupo.categoria ? null : grupo.categoria
+                            )
+                          }
+                          className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+                        >
+                          <span>
+                            <span className="block text-sm font-black text-white">
+                              {grupo.categoria}
+                            </span>
+                            <span className="mt-1 block text-xs font-bold text-zinc-500">
+                              {grupo.produtos.length} produtos
+                            </span>
                           </span>
-                          <span className="mt-1 block text-xs font-bold capitalize text-zinc-500">
-                            {rotuloTipo(produto.tipo)} · {produto.categoria}
+                          <span className="text-sm font-black text-[#ffb26a]">
+                            {aberto ? "Fechar" : "Abrir"}
                           </span>
-                        </span>
+                        </button>
 
-                        <input
-                          type="checkbox"
-                          checked={selecionado}
-                          onChange={(event) => {
-                            setComboProdutoIds((atuais) =>
-                              event.target.checked
-                                ? [...atuais, produto.id]
-                                : atuais.filter((id) => id !== produto.id)
-                            );
-                          }}
-                          className="h-5 w-5 accent-[#ff7a3d]"
-                        />
-                      </label>
+                        {aberto && (
+                          <div className="grid gap-2 border-t border-white/10 p-3">
+                            {grupo.produtos.map((produto) => {
+                              const selecionado = comboProdutoIds.includes(produto.id);
+                              const opcaoSelecionadaId =
+                                comboProdutoOpcoes[produto.id] ?? produto.opcoes[0]?.id ?? "";
+
+                              return (
+                                <div
+                                  key={produto.id}
+                                  className={`rounded-2xl border px-4 py-3 transition ${
+                                    selecionado
+                                      ? "border-[#ff7a3d] bg-[#ff7a3d]/15"
+                                      : "border-white/10 bg-white/[0.03]"
+                                  }`}
+                                >
+                                  <label className="flex cursor-pointer items-center justify-between gap-3">
+                                    <span>
+                                      <span className="block text-sm font-black text-white">
+                                        {produto.nome}
+                                      </span>
+                                      <span className="mt-1 block text-xs font-bold text-zinc-500">
+                                        A partir de {produto.precoInicial === null ? "sem preco" : dinheiro(produto.precoInicial)}
+                                      </span>
+                                    </span>
+
+                                    <input
+                                      type="checkbox"
+                                      checked={selecionado}
+                                      onChange={(event) => {
+                                        setComboProdutoIds((atuais) =>
+                                          event.target.checked
+                                            ? [...atuais, produto.id]
+                                            : atuais.filter((id) => id !== produto.id)
+                                        );
+
+                                        if (event.target.checked && produto.opcoes[0]?.id) {
+                                          setComboProdutoOpcoes((atuais) => ({
+                                            ...atuais,
+                                            [produto.id]: produto.opcoes[0].id ?? "",
+                                          }));
+                                        } else if (!event.target.checked) {
+                                          setComboProdutoOpcoes((atuais) => {
+                                            const proximasOpcoes = { ...atuais };
+                                            delete proximasOpcoes[produto.id];
+                                            return proximasOpcoes;
+                                          });
+                                        }
+                                      }}
+                                      className="h-5 w-5 accent-[#ff7a3d]"
+                                    />
+                                  </label>
+
+                                  {selecionado && produto.opcoes.length > 1 && categoriaEhPizza(produto.categoria) && (
+                                    <label className="mt-3 block">
+                                      <span className="mb-2 block text-xs font-black uppercase tracking-[0.14em] text-zinc-500">
+                                        Tamanho
+                                      </span>
+                                      <select
+                                        value={opcaoSelecionadaId}
+                                        onChange={(event) =>
+                                          setComboProdutoOpcoes((atuais) => ({
+                                            ...atuais,
+                                            [produto.id]: event.target.value,
+                                          }))
+                                        }
+                                        className="h-11 w-full rounded-2xl border border-white/10 bg-[#140f0d] px-4 text-sm font-bold text-white outline-none focus:border-[#ff7a3d]"
+                                      >
+                                        {produto.opcoes.map((opcao) => (
+                                          <option key={opcao.id} value={opcao.id}>
+                                            {opcao.nome} - {dinheiro(Number(opcao.preco))}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </label>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
                     );
                   })}
 
@@ -1266,26 +1199,70 @@ export default function ProdutosPage() {
                     </p>
                   )}
                 </div>
+
+                <div className="mt-4 grid gap-3 rounded-2xl border border-white/10 bg-[#0f0c0b] p-4 sm:grid-cols-[1fr_1fr]">
+                  <div className="sm:col-span-2">
+                    <p className="text-xs font-black uppercase tracking-[0.16em] text-zinc-500">
+                      Soma dos produtos
+                    </p>
+                    <p className="mt-1 text-2xl font-black text-white">
+                      {dinheiro(comboSubtotal)}
+                    </p>
+                  </div>
+
+                  <label>
+                    <span className="mb-2 block text-sm font-black text-zinc-200">
+                      Tipo de desconto
+                    </span>
+                    <select
+                      value={comboDescontoTipo}
+                      onChange={(event) =>
+                        setComboDescontoTipo(event.target.value as "percentual" | "valor")
+                      }
+                      className="h-12 w-full rounded-2xl border border-white/10 bg-[#140f0d] px-4 text-sm font-bold text-white outline-none focus:border-[#ff7a3d]"
+                    >
+                      <option value="percentual">Porcentagem (%)</option>
+                      <option value="valor">Valor direto (R$)</option>
+                    </select>
+                  </label>
+
+                  <label>
+                    <span className="mb-2 block text-sm font-black text-zinc-200">
+                      Desconto
+                    </span>
+                    <input
+                      value={comboDescontoValor}
+                      onChange={(event) => setComboDescontoValor(event.target.value)}
+                      placeholder={comboDescontoTipo === "percentual" ? "10" : "5,00"}
+                      className="h-12 w-full rounded-2xl border border-white/10 bg-[#140f0d] px-4 text-sm font-bold text-white outline-none focus:border-[#ff7a3d]"
+                    />
+                  </label>
+
+                  <p className="rounded-2xl bg-white/[0.04] px-4 py-3 text-sm font-black text-white sm:col-span-2">
+                    Preco do combo: {dinheiro(comboPrecoCalculado)}
+                  </p>
+                </div>
               </div>
             )}
 
+            {!categoriaSelecionadaEhCombo && (
             <div className="mt-6">
               <div className="flex items-center justify-between gap-3">
                 <h3 className="text-sm font-black text-zinc-200">
-                  {tipo === "adicional"
-                    ? "Preço do adicional"
-                    : tipo === "combo"
-                      ? "Preço do combo"
-                      : "Tamanhos, variações e preços"}
+                  {categoriaSelecionadaEhAdicional
+                    ? "Preco do adicional"
+                    : categoriaSelecionadaEhCombo
+                      ? "Preco do combo"
+                      : "Tamanhos, variacoes e precos"}
                 </h3>
 
-                {tipo !== "combo" && tipo !== "adicional" && (
+                {!categoriaSelecionadaEhCombo && !categoriaSelecionadaEhAdicional && (
                   <button
                     type="button"
                     onClick={adicionarOpcao}
                     className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-black text-zinc-200"
                   >
-                    + Opção
+                    + Opcao
                   </button>
                 )}
               </div>
@@ -1295,16 +1272,16 @@ export default function ProdutosPage() {
                   <div
                     key={index}
                     className={`grid gap-2 ${
-                      tipo === "adicional" ? "" : "sm:grid-cols-[1fr_120px_auto]"
+                      categoriaSelecionadaEhAdicional ? "" : "sm:grid-cols-[1fr_120px_auto]"
                     }`}
                   >
-                    {tipo !== "adicional" && (
+                    {!categoriaSelecionadaEhAdicional && (
                       <input
                         value={opcao.nome}
                         onChange={(event) =>
                           alterarOpcao(index, "nome", event.target.value)
                         }
-                        placeholder="Especificações"
+                        placeholder="Especificacoes"
                         required
                         className="h-12 rounded-2xl border border-white/10 bg-[#0f0c0b] px-4 text-sm font-bold text-white outline-none focus:border-[#ff7a3d]"
                       />
@@ -1320,7 +1297,7 @@ export default function ProdutosPage() {
                       className="h-12 rounded-2xl border border-white/10 bg-[#0f0c0b] px-4 text-sm font-bold text-white outline-none focus:border-[#ff7a3d]"
                     />
 
-                    {tipo !== "adicional" && (
+                    {!categoriaSelecionadaEhAdicional && (
                       <button
                         type="button"
                         onClick={() => removerOpcao(index)}
@@ -1334,6 +1311,7 @@ export default function ProdutosPage() {
                 ))}
               </div>
             </div>
+            )}
 
             <button
               type="submit"
@@ -1389,7 +1367,7 @@ export default function ProdutosPage() {
 
               <label>
                 <span className="mb-2 block text-sm font-black text-zinc-200">
-                  Preço
+                  Preco
                 </span>
                 <input
                   value={precoBorda}
@@ -1412,12 +1390,62 @@ export default function ProdutosPage() {
         </div>
       )}
 
+      {modalCategoriaAberto && (
+        <div className="fixed inset-0 z-50 flex items-end bg-black/70 p-0 backdrop-blur-sm sm:items-center sm:justify-center sm:p-5">
+          <form
+            ref={modalCategoriaRef}
+            onSubmit={salvarCategoria}
+            className="w-full rounded-t-[32px] border border-white/10 bg-[#140f0d] p-5 shadow-2xl sm:max-w-lg sm:rounded-[32px]"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-black uppercase tracking-[0.22em] text-[#ffb26a]">
+                  Nova categoria
+                </p>
+                <h2 className="mt-2 text-2xl font-black text-white">
+                  Adicionar categoria
+                </h2>
+              </div>
+
+              <button
+                type="button"
+                onClick={fecharModalCategoria}
+                className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-2 text-sm font-black text-zinc-200"
+              >
+                Fechar
+              </button>
+            </div>
+
+            <label className="mt-6 block">
+              <span className="mb-2 block text-sm font-black text-zinc-200">
+                Nome
+              </span>
+              <input
+                value={nomeCategoria}
+                onChange={(event) => setNomeCategoria(event.target.value)}
+                placeholder="Ex: Pizzas tradicionais"
+                required
+                className="h-12 w-full rounded-2xl border border-white/10 bg-[#0f0c0b] px-4 text-sm font-bold text-white outline-none focus:border-[#ff7a3d]"
+              />
+            </label>
+
+            <button
+              type="submit"
+              disabled={salvandoCategoria}
+              className="mt-6 w-full rounded-2xl bg-[#ff7a3d] px-5 py-4 text-sm font-black text-white transition hover:bg-[#ff6a26] disabled:opacity-60"
+            >
+              {salvandoCategoria ? "Salvando..." : "Salvar categoria"}
+            </button>
+          </form>
+        </div>
+      )}
+
       <ConfirmDialog
         aberto={Boolean(produtoParaExcluir)}
         titulo="Excluir produto?"
         descricao={`O produto "${
           produtoParaExcluir?.nome ?? ""
-        }" sairá do cardápio, mas o histórico permanece preservado.`}
+        }" saira do cardapio, mas o historico permanece preservado.`}
         confirmando={excluindo}
         onCancelar={() => setProdutoParaExcluir(null)}
         onConfirmar={confirmarExclusaoProduto}
@@ -1428,7 +1456,7 @@ export default function ProdutosPage() {
         titulo="Excluir borda?"
         descricao={`A borda "${
           bordaParaExcluir?.nome ?? ""
-        }" deixará de aparecer para novas pizzas.`}
+        }" deixara de aparecer para novas pizzas.`}
         confirmando={excluindoBorda}
         onCancelar={() => setBordaParaExcluir(null)}
         onConfirmar={confirmarExclusaoBorda}
@@ -1436,7 +1464,7 @@ export default function ProdutosPage() {
 
       <FeedbackDialog
         aberto={Boolean(erroModal)}
-        titulo="Não foi possível salvar"
+        titulo="Nao foi possivel salvar"
         descricao={erroModal}
         onFechar={() => setErroModal("")}
       />

@@ -3,21 +3,22 @@
 import Link from "next/link";
 import { ReactNode, useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabase";
 
-const menuItems = [
-  { label: "Início", href: "/admin/home" },
+type MenuItem = {
+  label: string;
+  href: string;
+  children?: {
+    label: string;
+    href: string;
+  }[];
+};
+
+const menuItems: MenuItem[] = [
+  { label: "Inicio", href: "/admin/home" },
   { label: "Pedidos", href: "/admin/pedidos" },
-  {
-    label: "Produtos",
-    href: "/admin/produtos",
-    children: [
-      { label: "Cardápio", href: "/admin/produtos" },
-      { label: "Categorias", href: "/admin/produtos/categorias" },
-    ],
-  },
+  { label: "Cardapio", href: "/admin/produtos" },
   { label: "Encomendas", href: "/admin/encomendas" },
-  { label: "Configurações", href: "/admin/configuracoes" },
+  { label: "Configuracoes", href: "/admin/configuracoes" },
   { label: "Dashboard", href: "/admin/dashboard" },
 ];
 
@@ -43,27 +44,59 @@ function MenuIcon({ aberto }: { aberto: boolean }) {
   );
 }
 
-function MenuLinks({ pathname, fechar }: { pathname: string; fechar: () => void }) {
+function MenuLinks({
+  pathname,
+  fechar,
+  mobile = false,
+}: {
+  pathname: string;
+  fechar: () => void;
+  mobile?: boolean;
+}) {
+  const [itensAbertos, setItensAbertos] = useState<string[]>([]);
+
   return (
     <>
       {menuItems.map((item) => {
         const ativo = pathname === item.href || pathname.startsWith(`${item.href}/`);
+        const expandido = ativo || itensAbertos.includes(item.href);
 
         return (
           <div key={item.href}>
-            <Link
-              href={item.href}
-              onClick={fechar}
-              className={`block rounded-2xl border px-4 py-3 text-sm font-bold transition ${
-                ativo
-                  ? "border-[#ff7a3d] bg-[#ff7a3d] text-white shadow-lg shadow-[#ff7a3d]/20"
-                  : "border-white/10 bg-white/[0.03] text-zinc-300 hover:border-white/20 hover:bg-white/[0.06] hover:text-white"
-              }`}
-            >
-              {item.label}
-            </Link>
+            {item.children && mobile ? (
+              <button
+                type="button"
+                onClick={() =>
+                  setItensAbertos((atuais) =>
+                    atuais.includes(item.href)
+                      ? atuais.filter((href) => href !== item.href)
+                      : [...atuais, item.href]
+                  )
+                }
+                className={`flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left text-sm font-bold transition ${
+                  ativo
+                    ? "border-[#ff7a3d] bg-[#ff7a3d] text-white shadow-lg shadow-[#ff7a3d]/20"
+                    : "border-white/10 bg-white/[0.03] text-zinc-300 hover:border-white/20 hover:bg-white/[0.06] hover:text-white"
+                }`}
+              >
+                <span>{item.label}</span>
+                <span className={`transition ${expandido ? "rotate-180" : ""}`}>v</span>
+              </button>
+            ) : (
+              <Link
+                href={item.href}
+                onClick={fechar}
+                className={`block rounded-2xl border px-4 py-3 text-sm font-bold transition ${
+                  ativo
+                    ? "border-[#ff7a3d] bg-[#ff7a3d] text-white shadow-lg shadow-[#ff7a3d]/20"
+                    : "border-white/10 bg-white/[0.03] text-zinc-300 hover:border-white/20 hover:bg-white/[0.06] hover:text-white"
+                }`}
+              >
+                {item.label}
+              </Link>
+            )}
 
-            {item.children && ativo && (
+            {item.children && expandido && (
               <div className="mt-2 grid gap-1 pl-4">
                 {item.children.map((child) => {
                   const childAtivo = pathname === child.href;
@@ -100,25 +133,7 @@ export default function AdminPainelLayout({
   const pathname = usePathname();
   const router = useRouter();
 
-  const [carregando, setCarregando] = useState(true);
   const [menuAberto, setMenuAberto] = useState(false);
-
-  useEffect(() => {
-    async function verificarLogin() {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      if (!session) {
-        router.replace("/admin/login");
-        return;
-      }
-
-      setCarregando(false);
-    }
-
-    verificarLogin();
-  }, [router]);
 
   useEffect(() => {
     if (!menuAberto) {
@@ -142,17 +157,8 @@ export default function AdminPainelLayout({
     };
   }, [menuAberto]);
 
-  async function sair() {
-    await supabase.auth.signOut();
+  function sair() {
     router.push("/admin/login");
-  }
-
-  if (carregando) {
-    return (
-      <main className="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top,#2b1511_0%,#120c0a_45%,#0b0908_100%)] text-zinc-100">
-        <p className="text-sm text-zinc-400">Carregando painel...</p>
-      </main>
-    );
   }
 
   return (
@@ -167,7 +173,7 @@ export default function AdminPainelLayout({
               Painel da pizzaria
             </h1>
             <p className="mt-2 max-w-xs text-sm font-medium text-[#3a170d]/85">
-              Controle pedidos, preços, cardápio e configurações num só lugar.
+              Controle pedidos, precos, cardapio e configuracoes num so lugar.
             </p>
           </div>
 
@@ -245,12 +251,12 @@ export default function AdminPainelLayout({
               Painel da pizzaria
             </h2>
             <p className="mt-2 text-sm font-medium text-[#3a170d]/85">
-              Menu rápido para pedidos, produtos e ajustes de preço.
+              Menu rapido para pedidos, produtos e ajustes de preco.
             </p>
           </div>
 
           <nav className="mt-6 flex flex-1 flex-col gap-2">
-            <MenuLinks pathname={pathname} fechar={() => setMenuAberto(false)} />
+            <MenuLinks pathname={pathname} fechar={() => setMenuAberto(false)} mobile />
           </nav>
 
           <button

@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { supabase } from "@/lib/supabase";
+import { useState } from "react";
 
 export type UsuarioAdmin = {
   id: string;
@@ -22,57 +21,28 @@ export type PizzariaAdmin = {
   mensagem_aviso: string | null;
 };
 
+const usuarioFrontOnly: UsuarioAdmin = {
+  id: "front-admin",
+  nome: "Administrador",
+  perfil: "admin",
+  pizzaria_id: "front-pizzaria",
+};
+
+const pizzariaFrontOnly: PizzariaAdmin = {
+  id: "front-pizzaria",
+  nome: "Casa Di Lari",
+  slug: "casadilari",
+  whatsapp: "",
+  status_aberto: true,
+  tempo_entrega_min: 30,
+  tempo_entrega_max: 45,
+  permite_encomendas: true,
+  mensagem_aviso: "Monte o cardapio pelo front.",
+};
+
 export function useAdminPizzaria() {
-  const [usuario, setUsuario] = useState<UsuarioAdmin | null>(null);
-  const [pizzaria, setPizzaria] = useState<PizzariaAdmin | null>(null);
-  const [erro, setErro] = useState("");
-  const [carregando, setCarregando] = useState(true);
+  const [usuario] = useState<UsuarioAdmin | null>(usuarioFrontOnly);
+  const [pizzaria] = useState<PizzariaAdmin | null>(pizzariaFrontOnly);
 
-  useEffect(() => {
-    async function carregarDados() {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      if (!session) {
-        setCarregando(false);
-        return;
-      }
-
-      const { data: usuarioData, error: usuarioError } = await supabase
-        .from("usuarios")
-        .select("id, nome, perfil, pizzaria_id")
-        .eq("id", session.user.id)
-        .single();
-
-      if (usuarioError || !usuarioData) {
-        setErro("Usuário não vinculado a nenhuma pizzaria.");
-        setCarregando(false);
-        return;
-      }
-
-      setUsuario(usuarioData);
-
-      const { data: pizzariaData, error: pizzariaError } = await supabase
-        .from("pizzarias")
-        .select(
-          "id, nome, slug, whatsapp, status_aberto, tempo_entrega_min, tempo_entrega_max, permite_encomendas, mensagem_aviso"
-        )
-        .eq("id", usuarioData.pizzaria_id)
-        .single();
-
-      if (pizzariaError || !pizzariaData) {
-        setErro("Não foi possível carregar os dados da pizzaria.");
-        setCarregando(false);
-        return;
-      }
-
-      setPizzaria(pizzariaData);
-      setCarregando(false);
-    }
-
-    carregarDados();
-  }, []);
-
-  return { usuario, pizzaria, erro, carregando };
+  return { usuario, pizzaria, erro: "", carregando: false };
 }
