@@ -62,6 +62,25 @@ type ItemCarrinho = {
   observacao: string;
 };
 
+type PedidoLocal = {
+  id: string;
+  numero: number;
+  protocolo: string;
+  cliente: string;
+  telefone: string;
+  status: "Recebido" | "Em preparo" | "Saiu pra entrega" | "Disponivel para retirada";
+  criadoEm: string;
+  tipoEntrega: "Entrega" | "Retirada";
+  endereco: string;
+  bairro: string;
+  referencia: string;
+  formaPagamento: string;
+  troco: string;
+  itens: ItemCarrinho[];
+  total: number;
+  mensagem: string;
+};
+
 const formasPagamento = ["Pix", "Dinheiro", "Cartao de Credito", "Cartao de Debito"];
 
 function dinheiro(valor: number) {
@@ -195,6 +214,72 @@ const pizzariaFrontOnly: Pizzaria = {
   mensagem_aviso: "Faca seu pedido pelo WhatsApp.",
 };
 
+function pedidosLocaisKey() {
+  return "casadilari:pedidos:front-pizzaria";
+}
+
+function carregarPedidosLocais(): PedidoLocal[] {
+  if (typeof window === "undefined") return [];
+
+  try {
+    const valor = window.localStorage.getItem(pedidosLocaisKey());
+    const pedidos = valor
+      ? (JSON.parse(valor) as Array<Omit<PedidoLocal, "status"> & { status: string }>)
+      : [];
+
+    return pedidos.map((pedido) => ({
+      ...pedido,
+      protocolo: pedido.protocolo ?? `PED-${String(pedido.numero).padStart(4, "0")}`,
+      status:
+        pedido.status === "Finalizado"
+          ? pedido.tipoEntrega === "Retirada"
+            ? "Disponivel para retirada"
+            : "Saiu pra entrega"
+          : pedido.status === "Novo"
+            ? "Recebido"
+            : (pedido.status as PedidoLocal["status"]),
+    }));
+  } catch {
+    return [];
+  }
+}
+
+function salvarPedidosLocais(pedidos: PedidoLocal[]) {
+  if (typeof window === "undefined") return;
+
+  window.localStorage.setItem(pedidosLocaisKey(), JSON.stringify(pedidos));
+}
+
+function gerarProtocolo() {
+  const alfabeto = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const partes = Array.from({ length: 3 }, () =>
+    Array.from({ length: 4 }, () => alfabeto[Math.floor(Math.random() * alfabeto.length)]).join("")
+  );
+
+  return partes.join("-");
+}
+
+function copiarTexto(valor: string) {
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(valor);
+    return;
+  }
+
+  const input = document.createElement("input");
+  input.value = valor;
+  document.body.appendChild(input);
+  input.select();
+  document.execCommand("copy");
+  document.body.removeChild(input);
+}
+
+function textoStatusCliente(status?: PedidoLocal["status"]) {
+  if (status === "Em preparo") return "Estamos preparando seu pedido.";
+  if (status === "Saiu pra entrega") return "Seu pedido saiu pra entrega.";
+  if (status === "Disponivel para retirada") return "Seu pedido esta disponivel para retirada.";
+  return "Pedido recebido.";
+}
+
 export default function Home() {
   const pizzaria = pizzariaFrontOnly;
   const [produtos, setProdutos] = useState<Produto[]>([]);
@@ -217,14 +302,22 @@ export default function Home() {
   const [itemEditandoId, setItemEditandoId] = useState<string | null>(null);
 
   const [nomeCliente, setNomeCliente] = useState("");
+  const [telefoneCliente, setTelefoneCliente] = useState("");
   const [tipoEntrega, setTipoEntrega] = useState<"Entrega" | "Retirada">("Entrega");
   const [endereco, setEndereco] = useState("");
   const [bairro, setBairro] = useState("");
   const [referencia, setReferencia] = useState("");
   const [formaPagamento, setFormaPagamento] = useState("Pix");
   const [troco, setTroco] = useState("");
+  const [pedidoConfirmado, setPedidoConfirmado] = useState<PedidoLocal | null>(null);
+  const [consultaAberta, setConsultaAberta] = useState(false);
+  const [protocoloConsulta, setProtocoloConsulta] = useState("");
+  const [pedidoConsultado, setPedidoConsultado] = useState<PedidoLocal | null>(null);
+  const [erroConsulta, setErroConsulta] = useState("");
   const produtoModalRef = useRef<HTMLDivElement | null>(null);
   const carrinhoModalRef = useRef<HTMLDivElement | null>(null);
+  const confirmacaoModalRef = useRef<HTMLDivElement | null>(null);
+  const consultaModalRef = useRef<HTMLDivElement | null>(null);
 
   const fecharProduto = useCallback(() => {
     setProdutoSelecionado(null);
@@ -233,6 +326,8 @@ export default function Home() {
 
   useModalClose(Boolean(produtoSelecionado), fecharProduto, produtoModalRef);
   useModalClose(carrinhoAberto, () => setCarrinhoAberto(false), carrinhoModalRef);
+  useModalClose(Boolean(pedidoConfirmado), () => setPedidoConfirmado(null), confirmacaoModalRef);
+  useModalClose(consultaAberta, () => setConsultaAberta(false), consultaModalRef);
 
   useEffect(() => {
     const timerId = window.setTimeout(() => {
@@ -508,6 +603,7 @@ export default function Home() {
       `*NOVO PEDIDO - ${pizzaria?.nome ?? "CasaDiLari"}*`,
       "",
       `Cliente: ${nomeCliente}`,
+      telefoneCliente ? `Telefone: ${telefoneCliente}` : null,
       "",
       "*Itens do pedido:*",
       itens,
@@ -519,7 +615,7 @@ export default function Home() {
       pagamento,
       "",
       `*Total: ${dinheiro(total)}*`,
-    ].join("\n");
+    ].filter((linha) => linha !== null).join("\n");
   }
 
   function enviarWhatsApp() {
@@ -538,17 +634,73 @@ export default function Home() {
       return;
     }
 
+    const mensagem = montarMensagemWhatsApp();
+    const pedidosAtuais = carregarPedidosLocais();
+    const proximoNumero =
+      pedidosAtuais.reduce((maiorNumero, pedido) => Math.max(maiorNumero, pedido.numero), 0) + 1;
+    let protocolo = gerarProtocolo();
+
+    while (pedidosAtuais.some((pedido) => pedido.protocolo === protocolo)) {
+      protocolo = gerarProtocolo();
+    }
+
+    const pedido: PedidoLocal = {
+      id: `local-${crypto.randomUUID()}`,
+      numero: proximoNumero,
+      protocolo,
+      cliente: nomeCliente.trim(),
+      telefone: telefoneCliente.trim(),
+      status: "Recebido",
+      criadoEm: new Date().toISOString(),
+      tipoEntrega,
+      endereco: endereco.trim(),
+      bairro: bairro.trim(),
+      referencia: referencia.trim(),
+      formaPagamento,
+      troco: troco.trim(),
+      itens: carrinho,
+      total,
+      mensagem,
+    };
+
+    salvarPedidosLocais([pedido, ...pedidosAtuais]);
+
+    setCarrinho([]);
+    setCarrinhoAberto(false);
+    setNomeCliente("");
+    setTelefoneCliente("");
+    setEndereco("");
+    setBairro("");
+    setReferencia("");
+    setTroco("");
+    setPedidoConfirmado(pedido);
+
     const whatsapp = pizzaria?.whatsapp;
 
-    if (!whatsapp) {
-      alert("WhatsApp da pizzaria nao encontrado.");
+    if (whatsapp) {
+      const url = `https://wa.me/${whatsapp}?text=${encodeURIComponent(mensagem)}`;
+      window.location.href = url;
       return;
     }
 
-    const mensagem = montarMensagemWhatsApp();
-    const url = `https://wa.me/${whatsapp}?text=${encodeURIComponent(mensagem)}`;
+    setPedidoConsultado(pedido);
+    setProtocoloConsulta(protocolo);
+  }
 
-    window.location.href = url;
+  function consultarPedido() {
+    const protocolo = protocoloConsulta.trim().toUpperCase();
+    const pedido = carregarPedidosLocais().find(
+      (pedidoItem) => pedidoItem.protocolo?.toUpperCase() === protocolo
+    );
+
+    if (!pedido) {
+      setPedidoConsultado(null);
+      setErroConsulta("Pedido nao encontrado. Confira o protocolo e tente novamente.");
+      return;
+    }
+
+    setPedidoConsultado(pedido);
+    setErroConsulta("");
   }
 
   const carrinhoPainel = (
@@ -648,6 +800,14 @@ export default function Home() {
           className="h-10 w-full rounded-2xl border border-[#eadfcc] bg-[#fffaf2] px-4 text-sm font-semibold outline-none focus:border-[#f2552c] sm:h-auto sm:py-3"
         />
 
+        <input
+          value={telefoneCliente}
+          onChange={(event) => setTelefoneCliente(event.target.value)}
+          placeholder="WhatsApp"
+          inputMode="tel"
+          className="h-10 w-full rounded-2xl border border-[#eadfcc] bg-[#fffaf2] px-4 text-sm font-semibold outline-none focus:border-[#f2552c] sm:h-auto sm:py-3"
+        />
+
         <div className="grid grid-cols-2 gap-2 rounded-2xl bg-[#fff8ea] p-1">
           <button
             type="button"
@@ -721,7 +881,7 @@ export default function Home() {
           onClick={enviarWhatsApp}
           className="w-full rounded-2xl bg-[#22a45d] px-4 py-3 text-sm font-black text-white shadow-lg shadow-[#22a45d]/20 transition active:scale-95 sm:py-4"
         >
-          Enviar pedido pelo WhatsApp
+          Enviar pedido
         </button>
       </div>
     </>
@@ -733,9 +893,13 @@ export default function Home() {
         <section className="pb-6 lg:min-h-screen lg:pb-8">
           <header className="relative overflow-hidden bg-[#ffd65a] px-4 pb-5 pt-4 sm:px-8 sm:pb-8 sm:pt-5 lg:rounded-br-[56px]">
             <div className="flex items-center justify-between">
-              <span className="rounded-full bg-white/80 px-3 py-2 text-[11px] font-black text-[#8b3b21] shadow-sm">
-                {pizzaria?.status_aberto ? "Aberto" : "Fechado"}
-              </span>
+              <button
+                type="button"
+                onClick={() => setConsultaAberta(true)}
+                className="rounded-full bg-white/80 px-3 py-2 text-[11px] font-black text-[#8b3b21] shadow-sm"
+              >
+                Seu pedido
+              </button>
 
               <div className="text-center">
                 <p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#8b3b21] sm:text-xs sm:tracking-[0.22em]">
@@ -933,6 +1097,116 @@ export default function Home() {
               </button>
             </div>
             {carrinhoPainel}
+          </div>
+        </div>
+      )}
+
+      {pedidoConfirmado && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#1d1009]/55 p-4 backdrop-blur-sm">
+          <div
+            ref={confirmacaoModalRef}
+            className="w-full max-w-sm rounded-[28px] bg-white p-5 text-center shadow-2xl"
+          >
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-[#d14f2a]">
+              Pedido confirmado
+            </p>
+            <h2 className="mt-2 font-serif text-3xl font-black text-[#1d1009]">
+              {pedidoConfirmado.protocolo}
+            </h2>
+            <p className="mt-2 text-sm font-semibold leading-6 text-[#8b7866]">
+              Guarde esse protocolo para acompanhar o andamento do seu pedido.
+            </p>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => copiarTexto(pedidoConfirmado.protocolo)}
+                className="rounded-2xl border border-[#eadfcc] bg-[#fff8ea] px-4 py-3 text-sm font-black text-[#1d1009]"
+              >
+                Copiar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setPedidoConfirmado(null);
+                  setConsultaAberta(true);
+                  setPedidoConsultado(pedidoConfirmado);
+                  setProtocoloConsulta(pedidoConfirmado.protocolo);
+                }}
+                className="rounded-2xl bg-[#f2552c] px-4 py-3 text-sm font-black text-white"
+              >
+                Ver pedido
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={() => setPedidoConfirmado(null)}
+              className="mt-2 w-full rounded-2xl bg-[#1d1009] px-4 py-3 text-sm font-black text-white"
+            >
+              Fechar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {consultaAberta && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#1d1009]/55 p-4 backdrop-blur-sm">
+          <div
+            ref={consultaModalRef}
+            className="w-full max-w-md rounded-[28px] bg-white p-5 shadow-2xl"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-[#d14f2a]">
+                  Seu pedido
+                </p>
+                <h2 className="mt-1 font-serif text-2xl font-black text-[#1d1009]">
+                  Acompanhar andamento
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setConsultaAberta(false)}
+                className="rounded-full bg-[#1d1009] px-4 py-2 text-xs font-black text-white"
+              >
+                Fechar
+              </button>
+            </div>
+
+            <div className="mt-4 grid gap-2 sm:grid-cols-[1fr_auto]">
+              <input
+                value={protocoloConsulta}
+                onChange={(event) => setProtocoloConsulta(event.target.value.toUpperCase())}
+                placeholder="Cole seu protocolo"
+                className="h-12 rounded-2xl border border-[#eadfcc] bg-[#fffaf2] px-4 text-sm font-bold uppercase outline-none focus:border-[#f2552c]"
+              />
+              <button
+                type="button"
+                onClick={consultarPedido}
+                className="rounded-2xl bg-[#f2552c] px-5 py-3 text-sm font-black text-white"
+              >
+                Consultar
+              </button>
+            </div>
+
+            {erroConsulta && (
+              <p className="mt-3 rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700">
+                {erroConsulta}
+              </p>
+            )}
+
+            {pedidoConsultado && (
+              <div className="mt-4 rounded-2xl bg-[#fff8ea] p-4">
+                <p className="text-xs font-black uppercase tracking-[0.16em] text-[#8b3b21]">
+                  {pedidoConsultado.protocolo}
+                </p>
+                <h3 className="mt-2 text-xl font-black text-[#1d1009]">
+                  {textoStatusCliente(pedidoConsultado.status)}
+                </h3>
+                <p className="mt-2 text-sm font-semibold text-[#8b7866]">
+                  Status: {pedidoConsultado.status}
+                </p>
+              </div>
+            )}
           </div>
         </div>
       )}
