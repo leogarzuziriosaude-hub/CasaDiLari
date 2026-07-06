@@ -14,12 +14,9 @@ type MenuItem = {
 };
 
 const menuItems: MenuItem[] = [
-  { label: "Inicio", href: "/admin/home" },
   { label: "Pedidos", href: "/admin/pedidos" },
   { label: "Cardapio", href: "/admin/produtos" },
-  { label: "Encomendas", href: "/admin/encomendas" },
   { label: "Configuracoes", href: "/admin/configuracoes" },
-  { label: "Dashboard", href: "/admin/dashboard" },
 ];
 
 function MenuIcon({ aberto }: { aberto: boolean }) {

@@ -1,25 +1,120 @@
 "use client";
 
-import { useAdminPizzaria } from "@/lib/useAdminPizzaria";
+import { FormEvent, useEffect, useRef, useState } from "react";
+import {
+  carregarConfigPizzariaLocal,
+  pizzariaConfigKey,
+  useAdminPizzaria,
+} from "@/lib/useAdminPizzaria";
+
+function arquivoParaDataUrl(arquivo: File) {
+  return new Promise<string>((resolve, reject) => {
+    const leitor = new FileReader();
+    leitor.onload = () => resolve(String(leitor.result));
+    leitor.onerror = () => reject(new Error("Nao foi possivel ler a foto."));
+    leitor.readAsDataURL(arquivo);
+  });
+}
 
 export default function ConfiguracoesPage() {
   const { pizzaria, erro, carregando } = useAdminPizzaria();
+  const [nomeLoja, setNomeLoja] = useState("");
+  const [whatsapp, setWhatsapp] = useState("");
+  const [tempoEntrega, setTempoEntrega] = useState("");
+  const [lojaAberta, setLojaAberta] = useState(true);
+  const [fotoLoja, setFotoLoja] = useState("");
+  const [salvando, setSalvando] = useState(false);
+  const [feedback, setFeedback] = useState("");
+  const [sucessoVisivel, setSucessoVisivel] = useState(false);
+  const sucessoTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const timerId = window.setTimeout(() => {
+      const config = carregarConfigPizzariaLocal();
+      setNomeLoja(config.nome ?? "");
+      setWhatsapp(config.whatsapp ?? "");
+      setTempoEntrega(config.tempo_entrega_texto ?? "");
+      setLojaAberta(Boolean(config.status_aberto));
+      setFotoLoja(config.imagem_url ?? "");
+    }, 0);
+
+    return () => window.clearTimeout(timerId);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (sucessoTimerRef.current) {
+        window.clearTimeout(sucessoTimerRef.current);
+      }
+    };
+  }, []);
+
+  function mostrarSucesso() {
+    setSucessoVisivel(true);
+
+    if (sucessoTimerRef.current) {
+      window.clearTimeout(sucessoTimerRef.current);
+    }
+
+    sucessoTimerRef.current = window.setTimeout(() => {
+      setSucessoVisivel(false);
+      sucessoTimerRef.current = null;
+    }, 2000);
+  }
+
+  async function selecionarFoto(arquivo: File | null) {
+    if (!arquivo) return;
+
+    if (!arquivo.type.startsWith("image/")) {
+      setFeedback("Selecione uma imagem valida.");
+      return;
+    }
+
+    try {
+      setFotoLoja(await arquivoParaDataUrl(arquivo));
+    } catch {
+      setFeedback("Nao foi possivel carregar a foto.");
+    }
+  }
+
+  function salvarConfiguracoes(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!pizzaria || salvando) return;
+
+    setSalvando(true);
+    setFeedback("");
+
+    window.setTimeout(() => {
+      const proximaConfig = {
+        ...pizzaria,
+        nome: nomeLoja.trim() || "Minha pizzaria",
+        slug: nomeLoja.trim() || "Minha pizzaria",
+        whatsapp: whatsapp.trim(),
+        status_aberto: lojaAberta,
+        tempo_entrega_texto: tempoEntrega.trim() || null,
+        imagem_url: fotoLoja || null,
+      };
+
+      window.localStorage.setItem(pizzariaConfigKey(pizzaria.id), JSON.stringify(proximaConfig));
+      window.localStorage.setItem(pizzariaConfigKey(), JSON.stringify(proximaConfig));
+      setSalvando(false);
+      mostrarSucesso();
+    }, 450);
+  }
 
   if (carregando) {
-    return <p className="text-sm text-zinc-400">Carregando configurações...</p>;
+    return <p className="text-sm text-zinc-400">Carregando configuracoes...</p>;
   }
 
   return (
     <div className="space-y-6">
-      <section className="rounded-[32px] border border-white/10 bg-white/[0.04] p-6">
-        <p className="text-sm font-black uppercase tracking-[0.22em] text-[#ffb26a]">
-          Configurações
+      <section className="rounded-[32px] border border-[#f0d6bf] bg-[#fff7ed] p-6 text-[#1f120d] shadow-[0_18px_45px_rgba(31,18,13,0.08)]">
+        <p className="text-sm font-black uppercase tracking-[0.22em] text-[#9d4d20]">
+          Configuracoes
         </p>
-        <h1 className="mt-3 text-3xl font-black text-white">
-          {pizzaria?.nome ?? "Ajustes da pizzaria"}
-        </h1>
-        <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-300">
-          Dados atuais cadastrados no banco.
+        <h1 className="mt-3 text-3xl font-black">Loja</h1>
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-[#7a5942]">
+          Ajuste as informacoes que aparecem no cardapio do cliente.
         </p>
       </section>
 
@@ -29,46 +124,155 @@ export default function ConfiguracoesPage() {
         </div>
       )}
 
+      {feedback && (
+        <div className="rounded-2xl border border-[#ffb26a]/30 bg-[#ff7a3d]/10 p-4 text-sm font-black text-[#ffb26a]">
+          {feedback}
+        </div>
+      )}
+
+      {sucessoVisivel && (
+        <button
+          type="button"
+          onClick={() => setSucessoVisivel(false)}
+          className="fixed right-4 top-4 z-50 rounded-2xl border border-[#22a45d]/30 bg-[#e9f8ef] px-5 py-3 text-sm font-black text-[#176f40] shadow-2xl shadow-black/20"
+        >
+          Configuracoes salvas com sucesso
+        </button>
+      )}
+
       {pizzaria && (
-        <section className="grid gap-4 lg:grid-cols-3">
-          <article className="rounded-[28px] border border-white/10 bg-white/[0.04] p-5">
-            <h2 className="text-lg font-black text-white">Atendimento</h2>
-            <p className="mt-3 text-3xl font-black text-white">
-              {pizzaria.status_aberto ? "Aberto" : "Fechado"}
+        <form onSubmit={salvarConfiguracoes} className="grid gap-5 lg:grid-cols-[1fr_320px]">
+          <section className="rounded-[28px] border border-white/10 bg-white/[0.04] p-5">
+            <div className="flex items-center justify-between gap-4 rounded-3xl border border-white/10 bg-[#0f0c0b] p-4">
+              <div>
+                <h2 className="text-lg font-black text-white">Loja aberta</h2>
+                <p className="mt-1 text-sm font-bold text-zinc-400">
+                  Quando estiver fechada, o cliente nao consegue finalizar pedido.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                role="switch"
+                aria-checked={lojaAberta}
+                onClick={() => setLojaAberta((atual) => !atual)}
+                className={`relative h-9 w-16 shrink-0 rounded-full p-1 transition ${
+                  lojaAberta ? "bg-[#22a45d]" : "bg-zinc-700"
+                }`}
+              >
+                <span
+                  className={`block h-7 w-7 rounded-full bg-white shadow-sm transition ${
+                    lojaAberta ? "translate-x-7" : "translate-x-0"
+                  }`}
+                />
+              </button>
+            </div>
+            <p
+              className={`mt-3 rounded-2xl px-4 py-3 text-sm font-black ${
+                lojaAberta
+                  ? "bg-[#22a45d]/10 text-[#7ee0a8]"
+                  : "bg-red-500/10 text-red-200"
+              }`}
+            >
+              Status atual: {lojaAberta ? "Aberta para pedidos" : "Fechada para pedidos"}
             </p>
-          </article>
 
-          <article className="rounded-[28px] border border-white/10 bg-white/[0.04] p-5">
-            <h2 className="text-lg font-black text-white">Entrega</h2>
-            <p className="mt-3 text-3xl font-black text-white">
-              {pizzaria.tempo_entrega_min}-{pizzaria.tempo_entrega_max} min
-            </p>
-          </article>
+            <div className="mt-5 grid gap-4">
+              <label>
+                <span className="mb-2 block text-sm font-black text-zinc-200">
+                  Nome da loja
+                </span>
+                <input
+                  value={nomeLoja}
+                  onChange={(event) => setNomeLoja(event.target.value)}
+                  placeholder="Ex: Casa Di Lari"
+                  className="h-12 w-full rounded-2xl border border-white/10 bg-[#0f0c0b] px-4 text-sm font-bold text-white outline-none focus:border-[#ff7a3d]"
+                />
+              </label>
 
-          <article className="rounded-[28px] border border-white/10 bg-white/[0.04] p-5">
-            <h2 className="text-lg font-black text-white">Encomendas</h2>
-            <p className="mt-3 text-3xl font-black text-white">
-              {pizzaria.permite_encomendas ? "Ativas" : "Inativas"}
-            </p>
-          </article>
+              <label>
+                <span className="mb-2 block text-sm font-black text-zinc-200">
+                  WhatsApp
+                </span>
+                <input
+                  value={whatsapp}
+                  onChange={(event) => setWhatsapp(event.target.value)}
+                  placeholder="Ex: (21) 99999-9999"
+                  inputMode="tel"
+                  className="h-12 w-full rounded-2xl border border-white/10 bg-[#0f0c0b] px-4 text-sm font-bold text-white outline-none focus:border-[#ff7a3d]"
+                />
+              </label>
 
-          <article className="rounded-[28px] border border-white/10 bg-white/[0.04] p-5 lg:col-span-2">
-            <h2 className="text-lg font-black text-white">WhatsApp</h2>
-            <p className="mt-3 text-2xl font-black text-white">{pizzaria.whatsapp}</p>
-          </article>
+              <label>
+                <span className="mb-2 block text-sm font-black text-zinc-200">
+                  Tempo de entrega
+                </span>
+                <input
+                  value={tempoEntrega}
+                  onChange={(event) => setTempoEntrega(event.target.value)}
+                  placeholder="Ex: 30 a 45 min"
+                  className="h-12 w-full rounded-2xl border border-white/10 bg-[#0f0c0b] px-4 text-sm font-bold text-white outline-none focus:border-[#ff7a3d]"
+                />
+                <span className="mt-2 block text-xs font-bold text-zinc-500">
+                  Se deixar vazio, essa informacao nao aparece para o cliente.
+                </span>
+              </label>
+            </div>
+          </section>
 
-          <article className="rounded-[28px] border border-white/10 bg-white/[0.04] p-5">
-            <h2 className="text-lg font-black text-white">Slug</h2>
-            <p className="mt-3 text-2xl font-black text-white">{pizzaria.slug}</p>
-          </article>
+          <aside className="rounded-[28px] border border-white/10 bg-white/[0.04] p-5">
+            <h2 className="text-lg font-black text-white">Foto da loja</h2>
+            <div className="mt-4 grid gap-3 rounded-3xl border border-white/10 bg-[#0f0c0b] p-3">
+              <div className="grid aspect-square place-items-center overflow-hidden rounded-3xl bg-white/[0.04]">
+                {fotoLoja ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={fotoLoja}
+                    alt="Foto da loja"
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <span className="px-4 text-center text-sm font-bold leading-6 text-zinc-500">
+                    Sem foto
+                  </span>
+                )}
+              </div>
 
-          <article className="rounded-[28px] border border-white/10 bg-white/[0.04] p-5 lg:col-span-3">
-            <h2 className="text-lg font-black text-white">Aviso público</h2>
-            <p className="mt-3 text-sm leading-6 text-zinc-300">
-              {pizzaria.mensagem_aviso ?? "Sem aviso cadastrado"}
-            </p>
-          </article>
-        </section>
+              <label className="grid h-11 cursor-pointer place-items-center rounded-2xl bg-[#ff7a3d] px-4 text-sm font-black text-white transition hover:bg-[#ff6a26]">
+                Escolher foto
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(event) => selecionarFoto(event.target.files?.[0] ?? null)}
+                />
+              </label>
+
+              {fotoLoja && (
+                <button
+                  type="button"
+                  onClick={() => setFotoLoja("")}
+                  className="h-11 rounded-2xl border border-white/10 bg-white/[0.04] px-4 text-sm font-black text-zinc-200"
+                >
+                  Remover foto
+                </button>
+              )}
+            </div>
+          </aside>
+
+          <div className="lg:col-span-2">
+            <button
+              type="submit"
+              disabled={salvando}
+              className="flex w-full items-center justify-center gap-3 rounded-2xl bg-[#ff7a3d] px-5 py-4 text-sm font-black text-white transition hover:bg-[#ff6a26] disabled:opacity-70"
+            >
+              {salvando && (
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+              )}
+              {salvando ? "Salvando..." : "Salvar configuracoes"}
+            </button>
+          </div>
+        </form>
       )}
     </div>
   );

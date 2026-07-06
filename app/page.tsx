@@ -33,7 +33,9 @@ type Pizzaria = {
   status_aberto: boolean;
   tempo_entrega_min: number;
   tempo_entrega_max: number;
+  tempo_entrega_texto?: string | null;
   mensagem_aviso: string | null;
+  imagem_url?: string | null;
 };
 
 type CategoriaBanco = {
@@ -140,12 +142,22 @@ function produtoEhCombo(produto: Produto | null) {
   return Boolean(produto && categoriaEhCombo(produto.categoria));
 }
 
+function ordenarCategoriasBanco(categorias: CategoriaBanco[]) {
+  return [...categorias].sort((categoriaA, categoriaB) => {
+    const ordemA = categoriaA.ordem ?? Number.MAX_SAFE_INTEGER;
+    const ordemB = categoriaB.ordem ?? Number.MAX_SAFE_INTEGER;
+
+    if (ordemA !== ordemB) return ordemA - ordemB;
+    return categoriaA.nome.localeCompare(categoriaB.nome);
+  });
+}
+
 function carregarCategoriasLocais(): CategoriaBanco[] {
   if (typeof window === "undefined") return [];
 
   try {
     const valor = window.localStorage.getItem("casadilari:categorias:front-pizzaria");
-    return valor ? (JSON.parse(valor) as CategoriaBanco[]) : [];
+    return valor ? ordenarCategoriasBanco(JSON.parse(valor) as CategoriaBanco[]) : [];
   } catch {
     return [];
   }
@@ -211,8 +223,25 @@ const pizzariaFrontOnly: Pizzaria = {
   status_aberto: true,
   tempo_entrega_min: 30,
   tempo_entrega_max: 45,
+  tempo_entrega_texto: "30-45 min",
   mensagem_aviso: "Faca seu pedido pelo WhatsApp.",
+  imagem_url: null,
 };
+
+function carregarConfigPizzariaLocal(): Pizzaria {
+  if (typeof window === "undefined") return pizzariaFrontOnly;
+
+  try {
+    const valor = window.localStorage.getItem("casadilari:config:front-pizzaria");
+    return valor ? { ...pizzariaFrontOnly, ...JSON.parse(valor) } : pizzariaFrontOnly;
+  } catch {
+    return pizzariaFrontOnly;
+  }
+}
+
+function telefoneParaWhatsApp(valor: string) {
+  return valor.replace(/\D/g, "");
+}
 
 function pedidosLocaisKey() {
   return "casadilari:pedidos:front-pizzaria";
@@ -273,6 +302,17 @@ function copiarTexto(valor: string) {
   document.body.removeChild(input);
 }
 
+function limparTelefone(valor: string) {
+  return valor.replace(/\D/g, "");
+}
+
+function telefoneValido(valor: string) {
+  const telefone = limparTelefone(valor);
+  const semCodigoBrasil = telefone.startsWith("55") ? telefone.slice(2) : telefone;
+
+  return semCodigoBrasil.length === 10 || semCodigoBrasil.length === 11;
+}
+
 function textoStatusCliente(status?: PedidoLocal["status"]) {
   if (status === "Em preparo") return "Estamos preparando seu pedido.";
   if (status === "Saiu pra entrega") return "Seu pedido saiu pra entrega.";
@@ -281,7 +321,7 @@ function textoStatusCliente(status?: PedidoLocal["status"]) {
 }
 
 export default function Home() {
-  const pizzaria = pizzariaFrontOnly;
+  const [pizzaria, setPizzaria] = useState<Pizzaria>(pizzariaFrontOnly);
   const [produtos, setProdutos] = useState<Produto[]>([]);
   const [categoriasOrdenadas, setCategoriasOrdenadas] = useState<CategoriaBanco[]>([]);
   const [bordas, setBordas] = useState<Borda[]>([]);
@@ -310,6 +350,7 @@ export default function Home() {
   const [formaPagamento, setFormaPagamento] = useState("Pix");
   const [troco, setTroco] = useState("");
   const [pedidoConfirmado, setPedidoConfirmado] = useState<PedidoLocal | null>(null);
+  const [protocoloCopiado, setProtocoloCopiado] = useState(false);
   const [consultaAberta, setConsultaAberta] = useState(false);
   const [protocoloConsulta, setProtocoloConsulta] = useState("");
   const [pedidoConsultado, setPedidoConsultado] = useState<PedidoLocal | null>(null);
@@ -331,6 +372,7 @@ export default function Home() {
 
   useEffect(() => {
     const timerId = window.setTimeout(() => {
+      setPizzaria(carregarConfigPizzariaLocal());
       setProdutos(carregarProdutosLocais());
       setCategoriasOrdenadas(carregarCategoriasLocais());
       setBordas(carregarBordasLocais());
@@ -338,6 +380,20 @@ export default function Home() {
     }, 0);
 
     return () => window.clearTimeout(timerId);
+  }, []);
+
+  useEffect(() => {
+    function atualizarConfig() {
+      setPizzaria(carregarConfigPizzariaLocal());
+    }
+
+    window.addEventListener("focus", atualizarConfig);
+    window.addEventListener("storage", atualizarConfig);
+
+    return () => {
+      window.removeEventListener("focus", atualizarConfig);
+      window.removeEventListener("storage", atualizarConfig);
+    };
   }, []);
 
   const produtosDeVenda = useMemo(() => {
@@ -377,8 +433,6 @@ export default function Home() {
 
     return filtros;
   }, [categoriasOrdenadas, produtosDeVenda]);
-
-  const hero = produtosDeVenda[0] ?? null;
 
   const produtosFiltrados = useMemo(() => {
     if (categoriaSelecionada === "Todos") return produtosDeVenda;
@@ -619,6 +673,14 @@ export default function Home() {
   }
 
   function enviarWhatsApp() {
+    const configAtual = carregarConfigPizzariaLocal();
+    setPizzaria(configAtual);
+
+    if (!configAtual.status_aberto) {
+      alert("A loja esta fechada no momento.");
+      return;
+    }
+
     if (carrinho.length === 0) {
       alert("Adicione pelo menos um item ao carrinho.");
       return;
@@ -626,6 +688,11 @@ export default function Home() {
 
     if (!nomeCliente.trim()) {
       alert("Informe seu nome.");
+      return;
+    }
+
+    if (!telefoneValido(telefoneCliente)) {
+      alert("Informe um WhatsApp valido com DDD. Ex: (21) 9XXXX-XXXX.");
       return;
     }
 
@@ -673,9 +740,10 @@ export default function Home() {
     setBairro("");
     setReferencia("");
     setTroco("");
+    setProtocoloCopiado(false);
     setPedidoConfirmado(pedido);
 
-    const whatsapp = pizzaria?.whatsapp;
+    const whatsapp = telefoneParaWhatsApp(configAtual.whatsapp);
 
     if (whatsapp) {
       const url = `https://wa.me/${whatsapp}?text=${encodeURIComponent(mensagem)}`;
@@ -803,7 +871,7 @@ export default function Home() {
         <input
           value={telefoneCliente}
           onChange={(event) => setTelefoneCliente(event.target.value)}
-          placeholder="WhatsApp"
+          placeholder="WhatsApp: (21) 9XXXX-XXXX"
           inputMode="tel"
           className="h-10 w-full rounded-2xl border border-[#eadfcc] bg-[#fffaf2] px-4 text-sm font-semibold outline-none focus:border-[#f2552c] sm:h-auto sm:py-3"
         />
@@ -876,12 +944,17 @@ export default function Home() {
           />
         )}
 
-        <button
-          type="button"
-          onClick={enviarWhatsApp}
-          className="w-full rounded-2xl bg-[#22a45d] px-4 py-3 text-sm font-black text-white shadow-lg shadow-[#22a45d]/20 transition active:scale-95 sm:py-4"
+      <button
+        type="button"
+        onClick={enviarWhatsApp}
+          disabled={!pizzaria.status_aberto}
+          className={`w-full rounded-2xl px-4 py-3 text-sm font-black text-white shadow-lg transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-60 sm:py-4 ${
+            pizzaria.status_aberto
+              ? "bg-[#22a45d] shadow-[#22a45d]/20"
+              : "bg-zinc-500 shadow-zinc-500/10"
+          }`}
         >
-          Enviar pedido
+          {pizzaria.status_aberto ? "Enviar pedido" : "Loja fechada"}
         </button>
       </div>
     </>
@@ -898,7 +971,7 @@ export default function Home() {
                 onClick={() => setConsultaAberta(true)}
                 className="rounded-full bg-white/80 px-3 py-2 text-[11px] font-black text-[#8b3b21] shadow-sm"
               >
-                Seu pedido
+                Acompanhe seu pedido
               </button>
 
               <div className="text-center">
@@ -942,26 +1015,26 @@ export default function Home() {
                 <h2 className="mt-1 max-w-sm font-serif text-3xl font-black leading-[1] sm:mt-2 sm:text-5xl sm:leading-[0.95]">
                   {pizzaria?.mensagem_aviso ?? "Faca seu pedido pelo WhatsApp."}
                 </h2>
-                {pizzaria && (
+                {pizzaria.tempo_entrega_texto && (
                   <p className="mt-3 text-xs font-bold text-[#8b3b21] sm:mt-4 sm:text-sm">
-                    Entrega estimada: {pizzaria.tempo_entrega_min}-{pizzaria.tempo_entrega_max} min
+                    Entrega estimada: {pizzaria.tempo_entrega_texto}
                   </p>
                 )}
               </div>
 
               <div className="relative mx-auto grid aspect-square w-36 max-w-full place-items-center rounded-full bg-white/70 shadow-inner sm:w-60">
-                {hero?.imagemUrl ? (
+                {pizzaria.imagem_url ? (
                   <Image
-                    src={hero.imagemUrl}
-                    alt={hero.nome}
+                    src={pizzaria.imagem_url}
+                    alt={pizzaria.nome}
                     fill
                     unoptimized
-                    sizes="(min-width: 640px) 240px, 224px"
+                    sizes="(min-width: 640px) 240px, 144px"
                     className="h-full w-full rounded-full object-cover shadow-2xl shadow-[#8b3b21]/30"
                   />
                 ) : (
                   <div className="grid h-28 w-28 place-items-center rounded-full bg-[#1d1009] text-3xl font-black text-white shadow-2xl shadow-[#8b3b21]/30 sm:h-40 sm:w-40 sm:text-5xl">
-                    {hero ? iniciais(hero.nome) : "..."}
+                    {iniciais(pizzaria.nome)}
                   </div>
                 )}
               </div>
@@ -1074,6 +1147,14 @@ export default function Home() {
               </>
             )}
           </div>
+          <footer className="px-4 pb-5 sm:px-8">
+            <div className="rounded-[28px] border border-[#eadfcc] bg-white p-4 text-sm font-bold text-[#6d5a4a] shadow-sm sm:flex sm:items-center sm:justify-between sm:gap-4 sm:p-5">
+              <span>Problemas com o pedido?</span>
+              <span className="mt-1 block font-black text-[#1d1009] sm:mt-0">
+                Fale com a loja: {pizzaria?.whatsapp || "(21) 9XXXX-XXXX"}
+              </span>
+            </div>
+          </footer>
         </section>
 
         <aside className="hidden border-t border-[#eadfcc] bg-white px-5 py-6 sm:px-8 lg:sticky lg:top-0 lg:block lg:h-screen lg:overflow-y-auto lg:border-l lg:border-t-0">
@@ -1119,10 +1200,17 @@ export default function Home() {
             <div className="mt-4 grid grid-cols-2 gap-2">
               <button
                 type="button"
-                onClick={() => copiarTexto(pedidoConfirmado.protocolo)}
-                className="rounded-2xl border border-[#eadfcc] bg-[#fff8ea] px-4 py-3 text-sm font-black text-[#1d1009]"
+                onClick={() => {
+                  copiarTexto(pedidoConfirmado.protocolo);
+                  setProtocoloCopiado(true);
+                }}
+                className={`rounded-2xl border px-4 py-3 text-sm font-black transition ${
+                  protocoloCopiado
+                    ? "border-[#22a45d]/30 bg-[#e9f8ef] text-[#176f40]"
+                    : "border-[#eadfcc] bg-[#fff8ea] text-[#1d1009]"
+                }`}
               >
-                Copiar
+                {protocoloCopiado ? "Copiado!" : "Copiar"}
               </button>
               <button
                 type="button"
@@ -1157,7 +1245,7 @@ export default function Home() {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-xs font-black uppercase tracking-[0.18em] text-[#d14f2a]">
-                  Seu pedido
+                  Acompanhe seu pedido
                 </p>
                 <h2 className="mt-1 font-serif text-2xl font-black text-[#1d1009]">
                   Acompanhar andamento

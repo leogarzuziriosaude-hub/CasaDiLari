@@ -2,6 +2,7 @@
 
 import {
   FormEvent,
+  PointerEvent,
   useCallback,
   useEffect,
   useMemo,
@@ -125,6 +126,23 @@ function salvarBordasLocais(pizzariaId: string, bordas: Borda[]) {
   window.localStorage.setItem(bordasLocaisKey(pizzariaId), JSON.stringify(bordas));
 }
 
+function ordenarCategorias(categorias: Categoria[]) {
+  return [...categorias].sort((categoriaA, categoriaB) => {
+    const ordemA = categoriaA.ordem ?? Number.MAX_SAFE_INTEGER;
+    const ordemB = categoriaB.ordem ?? Number.MAX_SAFE_INTEGER;
+
+    if (ordemA !== ordemB) return ordemA - ordemB;
+    return categoriaA.nome.localeCompare(categoriaB.nome);
+  });
+}
+
+function normalizarOrdemCategorias(categorias: Categoria[]) {
+  return categorias.map((categoria, index) => ({
+    ...categoria,
+    ordem: index + 1,
+  }));
+}
+
 function arquivoParaDataUrl(arquivo: File) {
   return new Promise<string>((resolve, reject) => {
     const leitor = new FileReader();
@@ -202,6 +220,9 @@ export default function ProdutosPage() {
   const [produtoParaExcluir, setProdutoParaExcluir] =
     useState<Produto | null>(null);
   const [modalCategoriaAberto, setModalCategoriaAberto] = useState(false);
+  const [modalOrganizarCategoriasAberto, setModalOrganizarCategoriasAberto] = useState(false);
+  const [categoriaArrastandoId, setCategoriaArrastandoId] = useState<string | null>(null);
+  const [categoriaDestinoId, setCategoriaDestinoId] = useState<string | null>(null);
   const [nomeCategoria, setNomeCategoria] = useState("");
   const [salvandoCategoria, setSalvandoCategoria] = useState(false);
 
@@ -234,6 +255,7 @@ export default function ProdutosPage() {
   const modalRef = useRef<HTMLFormElement | null>(null);
   const modalBordaRef = useRef<HTMLFormElement | null>(null);
   const modalCategoriaRef = useRef<HTMLFormElement | null>(null);
+  const modalOrganizarCategoriasRef = useRef<HTMLDivElement | null>(null);
 
   const fecharModal = useCallback(() => {
     setModalAberto(false);
@@ -267,9 +289,20 @@ export default function ProdutosPage() {
     setSalvandoCategoria(false);
   }, []);
 
+  const fecharModalOrganizarCategorias = useCallback(() => {
+    setModalOrganizarCategoriasAberto(false);
+    setCategoriaArrastandoId(null);
+    setCategoriaDestinoId(null);
+  }, []);
+
   useModalClose(modalAberto && !erroModal, fecharModal, modalRef);
   useModalClose(modalBordaAberto && !erroModal, fecharModalBorda, modalBordaRef);
   useModalClose(modalCategoriaAberto && !erroModal, fecharModalCategoria, modalCategoriaRef);
+  useModalClose(
+    modalOrganizarCategoriasAberto,
+    fecharModalOrganizarCategorias,
+    modalOrganizarCategoriasRef
+  );
 
   useEffect(() => {
     function carregarProdutos() {
@@ -278,7 +311,7 @@ export default function ProdutosPage() {
       setCarregandoProdutos(true);
       setErroProdutos("");
 
-      const categoriasData = carregarCategoriasLocais(pizzaria.id);
+      const categoriasData = ordenarCategorias(carregarCategoriasLocais(pizzaria.id));
       setCategorias(categoriasData);
       setProdutos(carregarProdutosLocais(pizzaria.id));
       setBordas(carregarBordasLocais(pizzaria.id));
@@ -287,6 +320,10 @@ export default function ProdutosPage() {
 
     carregarProdutos();
   }, [pizzaria]);
+
+  const categoriasOrdenadas = useMemo(() => {
+    return ordenarCategorias(categorias);
+  }, [categorias]);
 
   const produtosFiltrados = useMemo(() => {
     if (filtroCardapio === "bordas") return [];
@@ -384,6 +421,96 @@ export default function ProdutosPage() {
     setModalCategoriaAberto(true);
   }
 
+  function salvarCategoriasOrdenadas(proximasCategorias: Categoria[]) {
+    if (!pizzaria) return;
+
+    const categoriasNormalizadas = normalizarOrdemCategorias(proximasCategorias);
+    setCategorias(categoriasNormalizadas);
+    salvarCategoriasLocais(pizzaria.id, categoriasNormalizadas);
+  }
+
+  function moverCategoria(categoriaId: string, direcao: -1 | 1) {
+    const categoriasAtuais = ordenarCategorias(categorias);
+    const indexAtual = categoriasAtuais.findIndex((categoria) => categoria.id === categoriaId);
+    const proximoIndex = indexAtual + direcao;
+
+    if (indexAtual < 0 || proximoIndex < 0 || proximoIndex >= categoriasAtuais.length) return;
+
+    const proximasCategorias = [...categoriasAtuais];
+    const categoriaAtual = proximasCategorias[indexAtual];
+    proximasCategorias[indexAtual] = proximasCategorias[proximoIndex];
+    proximasCategorias[proximoIndex] = categoriaAtual;
+
+    salvarCategoriasOrdenadas(proximasCategorias);
+  }
+
+  function moverCategoriaPara(categoriaId: string, destinoId: string) {
+    const categoriasAtuais = ordenarCategorias(categorias);
+    const indexAtual = categoriasAtuais.findIndex((categoria) => categoria.id === categoriaId);
+    const indexDestino = categoriasAtuais.findIndex((categoria) => categoria.id === destinoId);
+
+    if (indexAtual < 0 || indexDestino < 0 || indexAtual === indexDestino) return;
+
+    const proximasCategorias = [...categoriasAtuais];
+    const [categoriaMovida] = proximasCategorias.splice(indexAtual, 1);
+    const novoIndexDestino = proximasCategorias.findIndex(
+      (categoria) => categoria.id === destinoId
+    );
+
+    if (novoIndexDestino < 0) return;
+
+    proximasCategorias.splice(novoIndexDestino, 0, categoriaMovida);
+    salvarCategoriasOrdenadas(proximasCategorias);
+  }
+
+  function categoriaNoPonto(clientX: number, clientY: number) {
+    const elementos = document.elementsFromPoint(clientX, clientY);
+
+    for (const elemento of elementos) {
+      if (!(elemento instanceof HTMLElement)) continue;
+
+      const alvo = elemento.closest<HTMLElement>("[data-categoria-ordem-id]");
+      const categoriaId = alvo?.dataset.categoriaOrdemId;
+
+      if (categoriaId) return categoriaId;
+    }
+
+    return null;
+  }
+
+  function iniciarArrasteCategoria(
+    event: PointerEvent<HTMLButtonElement>,
+    categoriaId: string
+  ) {
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setCategoriaArrastandoId(categoriaId);
+    setCategoriaDestinoId(null);
+  }
+
+  function atualizarArrasteCategoria(event: PointerEvent<HTMLButtonElement>) {
+    if (!categoriaArrastandoId) return;
+
+    const categoriaId = categoriaNoPonto(event.clientX, event.clientY);
+    setCategoriaDestinoId(
+      categoriaId && categoriaId !== categoriaArrastandoId ? categoriaId : null
+    );
+  }
+
+  function finalizarArrasteCategoria(event: PointerEvent<HTMLButtonElement>) {
+    if (!categoriaArrastandoId) return;
+
+    const categoriaId =
+      categoriaDestinoId ?? categoriaNoPonto(event.clientX, event.clientY);
+
+    if (categoriaId && categoriaId !== categoriaArrastandoId) {
+      moverCategoriaPara(categoriaArrastandoId, categoriaId);
+    }
+
+    setCategoriaArrastandoId(null);
+    setCategoriaDestinoId(null);
+  }
+
   function salvarCategoria(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!pizzaria || !nomeCategoria.trim()) return;
@@ -405,17 +532,16 @@ export default function ProdutosPage() {
         (maiorOrdem, categoria) => Math.max(maiorOrdem, categoria.ordem ?? 0),
         0
       ) + 1;
-    const proximasCategorias = [
+    const proximasCategorias = ordenarCategorias([
       ...categorias,
       {
         id: `local-${crypto.randomUUID()}`,
         nome: nomeFinal,
         ordem: proximaOrdem,
       },
-    ];
+    ]);
 
-    setCategorias(proximasCategorias);
-    salvarCategoriasLocais(pizzaria.id, proximasCategorias);
+    salvarCategoriasOrdenadas(proximasCategorias);
     setSalvandoCategoria(false);
     fecharModalCategoria();
   }
@@ -699,17 +825,17 @@ export default function ProdutosPage() {
     return (
       <section
         key={titulo || "produtos"}
-        className="overflow-hidden rounded-[28px] border border-white/10 bg-white/[0.04]"
+        className="overflow-hidden rounded-[28px] border border-[#f0d6bf] bg-[#fff7ed] shadow-[0_18px_45px_rgba(31,18,13,0.08)]"
       >
         {titulo && (
-          <div className="border-b border-white/10 bg-zinc-950/70 px-5 py-4">
-            <h2 className="text-sm font-black uppercase tracking-[0.16em] text-[#ffb26a]">
+          <div className="border-b border-[#f0d6bf] bg-[#fff1df] px-5 py-4">
+            <h2 className="text-sm font-black uppercase tracking-[0.16em] text-[#9d4d20]">
               {titulo}
             </h2>
           </div>
         )}
 
-        <div className="hidden grid-cols-[1.3fr_0.8fr_0.8fr_170px] gap-4 border-b border-white/10 px-5 py-3 text-xs font-black uppercase tracking-[0.16em] text-zinc-500 md:grid">
+        <div className="hidden grid-cols-[1.3fr_0.8fr_0.8fr_170px] gap-4 border-b border-[#f0d6bf] px-5 py-3 text-xs font-black uppercase tracking-[0.16em] text-[#9b7a61] md:grid">
           <span>Produto</span>
           <span>Categoria</span>
           <span className="text-right">Preco inicial</span>
@@ -719,30 +845,30 @@ export default function ProdutosPage() {
         {listaProdutos.map((produto) => (
           <article
             key={produto.id}
-            className="grid grid-cols-1 gap-4 border-b border-white/10 px-5 py-4 last:border-b-0 md:grid-cols-[1.3fr_0.8fr_0.8fr_170px] md:items-center"
+            className="grid grid-cols-1 gap-4 border-b border-[#f0d6bf] px-5 py-4 last:border-b-0 md:grid-cols-[1.3fr_0.8fr_0.8fr_170px] md:items-center"
           >
             <div>
-              <h3 className="text-base font-black text-white">{produto.nome}</h3>
-              <p className="mt-1 line-clamp-2 text-sm leading-6 text-zinc-400">
+              <h3 className="text-base font-black text-[#1f120d]">{produto.nome}</h3>
+              <p className="mt-1 line-clamp-2 text-sm leading-6 text-[#7a5942]">
                 {produto.descricao ?? "Sem descricao cadastrada"}
               </p>
             </div>
 
             <div className="grid grid-cols-2 gap-3 md:contents">
               <div>
-                <p className="text-xs font-black uppercase tracking-[0.14em] text-zinc-500 md:hidden">
+                <p className="text-xs font-black uppercase tracking-[0.14em] text-[#9b7a61] md:hidden">
                   Categoria
                 </p>
-                <p className="mt-1 text-sm font-bold text-zinc-300 md:mt-0">
+                <p className="mt-1 text-sm font-bold text-[#5d4030] md:mt-0">
                   {produto.categoria}
                 </p>
               </div>
 
               <div className="col-span-2 md:col-span-1">
-                <p className="text-xs font-black uppercase tracking-[0.14em] text-zinc-500 md:hidden">
+                <p className="text-xs font-black uppercase tracking-[0.14em] text-[#9b7a61] md:hidden">
                   Preco inicial
                 </p>
-                <p className="mt-1 text-left text-lg font-black text-white md:mt-0 md:text-right">
+                <p className="mt-1 text-left text-lg font-black text-[#1f120d] md:mt-0 md:text-right">
                   {produto.precoInicial === null
                     ? "Sem preco"
                     : dinheiro(produto.precoInicial)}
@@ -753,7 +879,7 @@ export default function ProdutosPage() {
                 <button
                   type="button"
                   onClick={() => abrirEdicaoProduto(produto)}
-                  className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-black text-zinc-100"
+                  className="rounded-2xl border border-[#ead3ba] bg-white px-4 py-3 text-sm font-black text-[#1f120d] shadow-sm"
                 >
                   Editar
                 </button>
@@ -761,7 +887,7 @@ export default function ProdutosPage() {
                 <button
                   type="button"
                   onClick={() => setProdutoParaExcluir(produto)}
-                  className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm font-black text-red-200"
+                  className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-black text-red-700"
                 >
                   Excluir
                 </button>
@@ -771,7 +897,7 @@ export default function ProdutosPage() {
         ))}
 
         {!carregandoProdutos && listaProdutos.length === 0 && (
-          <div className="p-5 text-sm font-bold text-zinc-300">
+          <div className="p-5 text-sm font-bold text-[#7a5942]">
             Nenhum produto encontrado.
           </div>
         )}
@@ -785,29 +911,39 @@ export default function ProdutosPage() {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-[32px] border border-white/10 bg-white/[0.04] p-6">
+      <section className="rounded-[32px] border border-[#f0d6bf] bg-[#fff7ed] p-6 text-[#1f120d] shadow-[0_18px_45px_rgba(31,18,13,0.08)]">
         <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
-            <p className="text-sm font-black uppercase tracking-[0.22em] text-[#ffb26a]">
+            <p className="text-sm font-black uppercase tracking-[0.22em] text-[#9d4d20]">
               Produtos
             </p>
 
-            <h1 className="mt-3 text-3xl font-black text-white">Cardapio</h1>
+            <h1 className="mt-3 text-3xl font-black text-[#1f120d]">Cardapio</h1>
 
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-300">
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-[#7a5942]">
               Cadastre pizzas, bebidas, sobremesas, combos e adicionais da operacao.
             </p>
           </div>
 
           <div className="grid gap-2 sm:flex">
             {filtroCardapio !== "bordas" && (
-              <button
-                type="button"
-                onClick={abrirNovaCategoria}
-                className="rounded-2xl border border-white/10 bg-white/[0.04] px-5 py-3 text-sm font-black text-zinc-100 transition hover:bg-white/[0.08]"
-              >
-                + Adicionar categoria
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => setModalOrganizarCategoriasAberto(true)}
+                  className="rounded-2xl border border-[#ead3ba] bg-white px-5 py-3 text-sm font-black text-[#1f120d] shadow-sm transition hover:bg-[#fff1df]"
+                >
+                  Organizar categorias
+                </button>
+
+                <button
+                  type="button"
+                  onClick={abrirNovaCategoria}
+                  className="rounded-2xl border border-[#ead3ba] bg-white px-5 py-3 text-sm font-black text-[#1f120d] shadow-sm transition hover:bg-[#fff1df]"
+                >
+                  + Adicionar categoria
+                </button>
+              </>
             )}
 
             <button
@@ -834,7 +970,7 @@ export default function ProdutosPage() {
           <section className="flex gap-2 overflow-x-auto pb-1">
             {[
               { label: "Todos", value: "todos" as const },
-              ...categorias.map((categoria) => ({
+              ...categoriasOrdenadas.map((categoria) => ({
                 label: categoria.nome,
                 value: categoria.id,
               })),
@@ -846,7 +982,7 @@ export default function ProdutosPage() {
                 onClick={() => setFiltroCardapio(item.value)}
                 className={`shrink-0 rounded-2xl px-4 py-2 text-sm font-black transition ${
                   filtroCardapio === item.value
-                    ? "bg-white text-[#1f120d]"
+                    ? "bg-[#ff7a3d] text-white shadow-sm"
                     : "border border-white/10 bg-white/[0.04] text-zinc-300 hover:bg-white/[0.08]"
                 }`}
               >
@@ -856,8 +992,8 @@ export default function ProdutosPage() {
           </section>
 
           {filtroCardapio === "bordas" ? (
-            <section className="overflow-hidden rounded-[28px] border border-white/10 bg-white/[0.04]">
-              <div className="hidden grid-cols-[1fr_0.8fr_170px] gap-4 border-b border-white/10 px-5 py-3 text-xs font-black uppercase tracking-[0.16em] text-zinc-500 md:grid">
+            <section className="overflow-hidden rounded-[28px] border border-[#f0d6bf] bg-[#fff7ed] shadow-[0_18px_45px_rgba(31,18,13,0.08)]">
+              <div className="hidden grid-cols-[1fr_0.8fr_170px] gap-4 border-b border-[#f0d6bf] px-5 py-3 text-xs font-black uppercase tracking-[0.16em] text-[#9b7a61] md:grid">
                 <span>Borda</span>
                 <span className="text-right">Preco</span>
                 <span className="text-right">Acoes</span>
@@ -866,22 +1002,22 @@ export default function ProdutosPage() {
               {bordas.map((borda) => (
                 <article
                   key={borda.id}
-                  className="grid grid-cols-1 gap-4 border-b border-white/10 px-5 py-4 last:border-b-0 md:grid-cols-[1fr_0.8fr_170px] md:items-center"
+                  className="grid grid-cols-1 gap-4 border-b border-[#f0d6bf] px-5 py-4 last:border-b-0 md:grid-cols-[1fr_0.8fr_170px] md:items-center"
                 >
                   <div>
-                    <h2 className="text-base font-black text-white">
+                    <h2 className="text-base font-black text-[#1f120d]">
                       {borda.nome}
                     </h2>
-                    <p className="mt-1 text-sm leading-6 text-zinc-400">
+                    <p className="mt-1 text-sm leading-6 text-[#7a5942]">
                       Ordem {borda.ordem ?? "-"}
                     </p>
                   </div>
 
                   <div>
-                    <p className="text-xs font-black uppercase tracking-[0.14em] text-zinc-500 md:hidden">
+                    <p className="text-xs font-black uppercase tracking-[0.14em] text-[#9b7a61] md:hidden">
                       Preco
                     </p>
-                    <p className="mt-1 text-left text-lg font-black text-white md:mt-0 md:text-right">
+                    <p className="mt-1 text-left text-lg font-black text-[#1f120d] md:mt-0 md:text-right">
                       {dinheiro(borda.preco)}
                     </p>
                   </div>
@@ -890,7 +1026,7 @@ export default function ProdutosPage() {
                     <button
                       type="button"
                       onClick={() => abrirEdicaoBorda(borda)}
-                      className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-black text-zinc-100"
+                      className="rounded-2xl border border-[#ead3ba] bg-white px-4 py-3 text-sm font-black text-[#1f120d] shadow-sm"
                     >
                       Editar
                     </button>
@@ -898,7 +1034,7 @@ export default function ProdutosPage() {
                     <button
                       type="button"
                       onClick={() => setBordaParaExcluir(borda)}
-                      className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm font-black text-red-200"
+                      className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-black text-red-700"
                     >
                       Excluir
                     </button>
@@ -907,7 +1043,7 @@ export default function ProdutosPage() {
               ))}
 
               {!carregandoProdutos && bordas.length === 0 && (
-                <div className="p-5 text-sm font-bold text-zinc-300">
+                <div className="p-5 text-sm font-bold text-[#7a5942]">
                   Nenhuma borda cadastrada.
                 </div>
               )}
@@ -981,7 +1117,7 @@ export default function ProdutosPage() {
                   required
                 >
                   <option value="">Escolha uma categoria</option>
-                  {categorias.map((categoria) => (
+                  {categoriasOrdenadas.map((categoria) => (
                     <option key={categoria.id} value={categoria.id}>
                       {categoria.nome}
                     </option>
@@ -1018,8 +1154,8 @@ export default function ProdutosPage() {
                       Foto do produto
                     </span>
 
-                    <div className="grid gap-3 rounded-3xl border border-white/10 bg-[#0f0c0b] p-3 sm:grid-cols-[140px_1fr]">
-                      <div className="grid aspect-[1.2] place-items-center overflow-hidden rounded-2xl bg-white/[0.04]">
+                    <div className="grid gap-2 rounded-2xl border border-white/10 bg-[#0f0c0b] p-2 sm:grid-cols-[120px_1fr] sm:gap-3 sm:rounded-3xl sm:p-3">
+                      <div className="grid h-24 place-items-center overflow-hidden rounded-2xl bg-white/[0.04] sm:h-auto sm:aspect-[1.2]">
                         {fotoPreview ? (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img
@@ -1035,7 +1171,7 @@ export default function ProdutosPage() {
                       </div>
 
                       <div className="flex flex-col justify-center gap-2">
-                        <label className="grid h-12 cursor-pointer place-items-center rounded-2xl bg-[#ff7a3d] px-4 text-sm font-black text-white transition hover:bg-[#ff6a26]">
+                        <label className="grid h-10 cursor-pointer place-items-center rounded-2xl bg-[#ff7a3d] px-4 text-xs font-black text-white transition hover:bg-[#ff6a26] sm:h-12 sm:text-sm">
                           Escolher foto
                           <input
                             type="file"
@@ -1051,13 +1187,13 @@ export default function ProdutosPage() {
                           <button
                             type="button"
                             onClick={removerFoto}
-                            className="h-12 rounded-2xl border border-white/10 bg-white/[0.04] px-4 text-sm font-black text-zinc-200"
+                            className="h-10 rounded-2xl border border-white/10 bg-white/[0.04] px-4 text-xs font-black text-zinc-200 sm:h-12 sm:text-sm"
                           >
                             Remover foto
                           </button>
                         )}
 
-                        <span className="text-xs font-bold leading-5 text-zinc-500">
+                        <span className="hidden text-xs font-bold leading-5 text-zinc-500 sm:block">
                           Use uma imagem quadrada ou horizontal. No celular, este
                           botao abre a galeria.
                         </span>
@@ -1437,6 +1573,110 @@ export default function ProdutosPage() {
               {salvandoCategoria ? "Salvando..." : "Salvar categoria"}
             </button>
           </form>
+        </div>
+      )}
+
+      {modalOrganizarCategoriasAberto && (
+        <div className="fixed inset-0 z-50 flex items-end bg-black/70 p-0 backdrop-blur-sm sm:items-center sm:justify-center sm:p-5">
+          <div
+            ref={modalOrganizarCategoriasRef}
+            className="max-h-[88vh] w-full overflow-y-auto rounded-t-[32px] border border-white/10 bg-[#140f0d] p-5 shadow-2xl sm:max-w-lg sm:rounded-[32px]"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-black uppercase tracking-[0.22em] text-[#ffb26a]">
+                  Categorias
+                </p>
+                <h2 className="mt-2 text-2xl font-black text-white">
+                  Organizar ordem
+                </h2>
+                <p className="mt-2 text-sm font-bold leading-6 text-zinc-400">
+                  A ordem daqui e a mesma ordem dos filtros no cardapio do cliente.
+                </p>
+                <p className="mt-1 text-xs font-bold text-zinc-500">
+                  Arraste pela alca ou use as setas.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={fecharModalOrganizarCategorias}
+                className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-2 text-sm font-black text-zinc-200"
+              >
+                Fechar
+              </button>
+            </div>
+
+            <div className="mt-5 space-y-3">
+              {categoriasOrdenadas.map((categoria, index) => (
+                <article
+                  key={categoria.id}
+                  data-categoria-ordem-id={categoria.id}
+                  className={`rounded-2xl border p-3 transition ${
+                    categoriaDestinoId === categoria.id
+                      ? "border-[#ff7a3d] bg-[#20130d]"
+                      : categoriaArrastandoId === categoria.id
+                        ? "border-[#ffb26a]/70 bg-[#1b100c] opacity-80"
+                        : "border-white/10 bg-[#0f0c0b]"
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      aria-label={`Arrastar ${categoria.nome}`}
+                      onPointerDown={(event) => iniciarArrasteCategoria(event, categoria.id)}
+                      onPointerMove={atualizarArrasteCategoria}
+                      onPointerUp={finalizarArrasteCategoria}
+                      onPointerCancel={() => {
+                        setCategoriaArrastandoId(null);
+                        setCategoriaDestinoId(null);
+                      }}
+                      className="grid h-11 w-11 shrink-0 touch-none cursor-grab place-items-center rounded-2xl bg-white/[0.06] text-lg font-black leading-none text-[#ffb26a] active:cursor-grabbing"
+                    >
+                      =
+                    </button>
+
+                    <div className="min-w-0 flex-1">
+                      <h3 className="truncate text-sm font-black text-white">
+                        {categoria.nome}
+                      </h3>
+                      <p className="mt-1 text-xs font-bold text-zinc-500">
+                        Posicao {index + 1}
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-1">
+                      <button
+                        type="button"
+                        aria-label={`Subir ${categoria.nome}`}
+                        onClick={() => moverCategoria(categoria.id, -1)}
+                        disabled={index === 0}
+                        className="grid h-10 w-10 place-items-center rounded-2xl border border-white/10 bg-white/[0.04] text-lg font-black text-zinc-100 disabled:cursor-not-allowed disabled:opacity-35"
+                      >
+                        ^
+                      </button>
+
+                      <button
+                        type="button"
+                        aria-label={`Descer ${categoria.nome}`}
+                        onClick={() => moverCategoria(categoria.id, 1)}
+                        disabled={index === categoriasOrdenadas.length - 1}
+                        className="grid h-10 w-10 place-items-center rounded-2xl border border-white/10 bg-white/[0.04] text-lg font-black text-zinc-100 disabled:cursor-not-allowed disabled:opacity-35"
+                      >
+                        v
+                      </button>
+                    </div>
+                  </div>
+                </article>
+              ))}
+
+              {categoriasOrdenadas.length === 0 && (
+                <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm font-bold text-zinc-300">
+                  Nenhuma categoria cadastrada ainda.
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
 

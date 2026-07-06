@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 export type UsuarioAdmin = {
   id: string;
@@ -17,8 +17,10 @@ export type PizzariaAdmin = {
   status_aberto: boolean;
   tempo_entrega_min: number;
   tempo_entrega_max: number;
+  tempo_entrega_texto?: string | null;
   permite_encomendas: boolean;
   mensagem_aviso: string | null;
+  imagem_url?: string | null;
 };
 
 const usuarioFrontOnly: UsuarioAdmin = {
@@ -36,13 +38,38 @@ const pizzariaFrontOnly: PizzariaAdmin = {
   status_aberto: true,
   tempo_entrega_min: 30,
   tempo_entrega_max: 45,
+  tempo_entrega_texto: "30-45 min",
   permite_encomendas: true,
   mensagem_aviso: "Monte o cardapio pelo front.",
+  imagem_url: null,
 };
+
+export function pizzariaConfigKey(pizzariaId = "front-pizzaria") {
+  return `casadilari:config:${pizzariaId}`;
+}
+
+export function carregarConfigPizzariaLocal(): PizzariaAdmin {
+  if (typeof window === "undefined") return pizzariaFrontOnly;
+
+  try {
+    const valor = window.localStorage.getItem(pizzariaConfigKey());
+    return valor ? { ...pizzariaFrontOnly, ...JSON.parse(valor) } : pizzariaFrontOnly;
+  } catch {
+    return pizzariaFrontOnly;
+  }
+}
 
 export function useAdminPizzaria() {
   const [usuario] = useState<UsuarioAdmin | null>(usuarioFrontOnly);
-  const [pizzaria] = useState<PizzariaAdmin | null>(pizzariaFrontOnly);
+  const [pizzaria, setPizzaria] = useState<PizzariaAdmin | null>(pizzariaFrontOnly);
+
+  useEffect(() => {
+    const timerId = window.setTimeout(() => {
+      setPizzaria(carregarConfigPizzariaLocal());
+    }, 0);
+
+    return () => window.clearTimeout(timerId);
+  }, []);
 
   return { usuario, pizzaria, erro: "", carregando: false };
 }
