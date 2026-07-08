@@ -1097,7 +1097,7 @@ export default function Home() {
     <main className="cliente-compacto min-h-screen bg-[#f8f5ef] text-[#1b120c]">
       <div className="mx-auto min-h-screen max-w-6xl bg-[#fffaf2] shadow-[0_24px_90px_rgba(43,23,12,0.08)] lg:grid lg:grid-cols-[minmax(0,1fr)_380px]">
         <section className="pb-6 lg:min-h-screen lg:pb-8">
-          <header className="relative overflow-hidden bg-[#ffd65a] px-4 pb-5 pt-4 sm:px-8 sm:pb-8 sm:pt-5 lg:rounded-br-[56px]">
+          <header className="relative overflow-hidden bg-[#ffd65a] px-4 pb-4 pt-4 sm:px-8 sm:pb-8 sm:pt-5 lg:rounded-br-[56px]">
             <div className="flex items-center justify-between">
               <button
                 type="button"
@@ -1139,8 +1139,8 @@ export default function Home() {
               </button>
             </div>
 
-            <div className="mt-5 grid items-center gap-4 sm:mt-8 sm:grid-cols-[1fr_240px] sm:gap-5">
-              <div>
+            <div className="mt-4 grid grid-cols-[minmax(0,1fr)_176px] items-center gap-3 sm:mt-8 sm:grid-cols-[1fr_240px] sm:gap-5">
+              <div className="min-w-0">
                 <p className="hidden text-sm font-bold text-[#8b3b21] sm:block">
                   {pizzaria?.status_aberto ? "Estamos abertos" : "Estamos fechados"}
                 </p>
@@ -1148,7 +1148,7 @@ export default function Home() {
                   {!pizzaria.status_aberto && <p>Abre as {horarioAberturaTexto}</p>}
                   {pizzaria.endereco && <p>{pizzaria.endereco}</p>}
                 </div>
-                <h2 className="mt-1 max-w-sm font-serif text-3xl font-black leading-[1] sm:mt-2 sm:text-5xl sm:leading-[0.95]">
+                <h2 className="mt-1 max-w-sm font-serif text-2xl font-black leading-[1] sm:mt-2 sm:text-5xl sm:leading-[0.95]">
                   {pizzaria?.mensagem_aviso ?? "Escolha seus sabores e faca seu pedido."}
                 </h2>
                 <div className="mt-3 hidden space-y-1 text-xs font-bold leading-5 text-[#8b3b21] sm:block">
@@ -1156,24 +1156,24 @@ export default function Home() {
                   {pizzaria.endereco && <p>{pizzaria.endereco}</p>}
                 </div>
                 {pizzaria.tempo_entrega_texto && (
-                  <p className="mt-3 text-xs font-bold text-[#8b3b21] sm:mt-4 sm:text-sm">
+                  <p className="mt-2 text-xs font-bold text-[#8b3b21] sm:mt-4 sm:text-sm">
                     Entrega estimada: {pizzaria.tempo_entrega_texto}
                   </p>
                 )}
               </div>
 
-              <div className="relative mx-auto grid aspect-square w-36 max-w-full place-items-center rounded-full bg-white/70 shadow-inner sm:w-60">
+              <div className="relative ml-auto grid aspect-square w-44 max-w-full place-items-center rounded-full bg-white/70 shadow-inner sm:mx-auto sm:w-60">
                 {pizzaria.imagem_url ? (
                   <Image
                     src={pizzaria.imagem_url}
                     alt={pizzaria.nome}
                     fill
                     unoptimized
-                    sizes="(min-width: 640px) 240px, 144px"
+                    sizes="(min-width: 640px) 240px, 168px"
                     className="h-full w-full rounded-full object-cover shadow-2xl shadow-[#8b3b21]/30"
                   />
                 ) : (
-                  <div className="grid h-28 w-28 place-items-center rounded-full bg-[#1d1009] text-3xl font-black text-white shadow-2xl shadow-[#8b3b21]/30 sm:h-40 sm:w-40 sm:text-5xl">
+                  <div className="grid h-36 w-36 place-items-center rounded-full bg-[#1d1009] text-3xl font-black text-white shadow-2xl shadow-[#8b3b21]/30 sm:h-40 sm:w-40 sm:text-5xl">
                     {iniciais(pizzaria.nome)}
                   </div>
                 )}
@@ -1202,21 +1202,27 @@ export default function Home() {
 
             {produtos.length > 0 && (
               <>
-                <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-2 sm:-mx-8 sm:gap-3 sm:px-8">
-                  {categorias.map((categoria) => (
-                    <button
-                      type="button"
-                      key={categoria}
-                      onClick={() => setCategoriaSelecionada(categoria)}
-                      className={`shrink-0 rounded-full px-4 py-2 text-xs font-black transition sm:px-5 sm:py-3 sm:text-sm ${
-                        categoriaSelecionada === categoria
-                          ? "bg-[#1d1009] text-white shadow-lg shadow-[#1d1009]/15"
-                          : "bg-white text-[#6d5a4a] shadow-sm"
-                      }`}
-                    >
-                      {categoria}
-                    </button>
-                  ))}
+                <div className="-mx-4 overflow-hidden px-4 sm:-mx-8 sm:px-8">
+                  <div className="flex gap-2 overflow-x-auto pb-1">
+                    {categorias.map((categoria) => {
+                      const ativo = categoriaSelecionada === categoria;
+
+                      return (
+                        <button
+                          type="button"
+                          key={categoria}
+                          onClick={() => setCategoriaSelecionada(categoria)}
+                          className={`shrink-0 rounded-full border px-3.5 py-2 text-[11px] font-black transition sm:px-5 sm:py-3 sm:text-sm ${
+                            ativo
+                              ? "border-[#1d1009] bg-[#1d1009] text-white shadow-lg shadow-[#1d1009]/15"
+                              : "border-[#eadfcc] bg-white/90 text-[#6d5a4a] shadow-sm"
+                          }`}
+                        >
+                          {categoria}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
 
                 <div className="mt-5 flex items-end justify-between gap-4 sm:mt-7">
