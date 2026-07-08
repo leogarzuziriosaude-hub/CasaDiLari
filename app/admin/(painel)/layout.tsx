@@ -17,6 +17,7 @@ const menuItems: MenuItem[] = [
   { label: "Pedidos", href: "/admin/pedidos" },
   { label: "Cardapio", href: "/admin/produtos" },
   { label: "Configuracoes", href: "/admin/configuracoes" },
+  { label: "Historico", href: "/admin/historico" },
 ];
 
 function MenuIcon({ aberto }: { aberto: boolean }) {

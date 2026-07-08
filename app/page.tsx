@@ -30,10 +30,13 @@ type Pizzaria = {
   id: string;
   nome: string;
   whatsapp: string;
+  endereco?: string | null;
   status_aberto: boolean;
   tempo_entrega_min: number;
   tempo_entrega_max: number;
   tempo_entrega_texto?: string | null;
+  encomenda_hora_inicio?: string | null;
+  encomenda_hora_fim?: string | null;
   mensagem_aviso: string | null;
   imagem_url?: string | null;
 };
@@ -72,6 +75,9 @@ type PedidoLocal = {
   telefone: string;
   status: "Recebido" | "Em preparo" | "Saiu pra entrega" | "Disponivel para retirada";
   criadoEm: string;
+  tipoPedido?: "Agora" | "Encomenda";
+  dataEncomenda?: string | null;
+  horaEncomenda?: string | null;
   tipoEntrega: "Entrega" | "Retirada";
   endereco: string;
   bairro: string;
@@ -220,11 +226,14 @@ const pizzariaFrontOnly: Pizzaria = {
   id: "front-pizzaria",
   nome: "Casa Di Lari",
   whatsapp: "",
+  endereco: "",
   status_aberto: true,
   tempo_entrega_min: 30,
   tempo_entrega_max: 45,
   tempo_entrega_texto: "30-45 min",
-  mensagem_aviso: "Faca seu pedido pelo WhatsApp.",
+  encomenda_hora_inicio: "18:00",
+  encomenda_hora_fim: "20:00",
+  mensagem_aviso: "Escolha seus sabores e faca seu pedido.",
   imagem_url: null,
 };
 
@@ -233,7 +242,19 @@ function carregarConfigPizzariaLocal(): Pizzaria {
 
   try {
     const valor = window.localStorage.getItem("casadilari:config:front-pizzaria");
-    return valor ? { ...pizzariaFrontOnly, ...JSON.parse(valor) } : pizzariaFrontOnly;
+    const config = valor ? { ...pizzariaFrontOnly, ...JSON.parse(valor) } : pizzariaFrontOnly;
+
+    if (
+      config.mensagem_aviso === "Monte o cardapio pelo front." ||
+      config.mensagem_aviso === "Faca seu pedido pelo WhatsApp."
+    ) {
+      return {
+        ...config,
+        mensagem_aviso: pizzariaFrontOnly.mensagem_aviso,
+      };
+    }
+
+    return config;
   } catch {
     return pizzariaFrontOnly;
   }
@@ -245,6 +266,55 @@ function telefoneParaWhatsApp(valor: string) {
 
 function pedidosLocaisKey() {
   return "casadilari:pedidos:front-pizzaria";
+}
+
+function proximoSabado() {
+  const hoje = new Date();
+  const diasAteSabado = (6 - hoje.getDay() + 7) % 7 || 7;
+  const data = new Date(hoje);
+  data.setDate(hoje.getDate() + diasAteSabado);
+  data.setHours(0, 0, 0, 0);
+  return data;
+}
+
+function formatarDataEncomenda(data: Date) {
+  return new Intl.DateTimeFormat("pt-BR", {
+    weekday: "long",
+    day: "2-digit",
+    month: "2-digit",
+  }).format(data);
+}
+
+function dataIsoLocal(data: Date) {
+  const ano = data.getFullYear();
+  const mes = String(data.getMonth() + 1).padStart(2, "0");
+  const dia = String(data.getDate()).padStart(2, "0");
+  return `${ano}-${mes}-${dia}`;
+}
+
+function minutosDoHorario(horario: string) {
+  const [hora = "0", minuto = "0"] = horario.split(":");
+  return Number(hora) * 60 + Number(minuto);
+}
+
+function horarioDosMinutos(totalMinutos: number) {
+  const hora = Math.floor(totalMinutos / 60);
+  const minuto = totalMinutos % 60;
+  return `${String(hora).padStart(2, "0")}:${String(minuto).padStart(2, "0")}`;
+}
+
+function horariosEncomenda(inicio = "18:00", fim = "20:00") {
+  const inicioMinutos = minutosDoHorario(inicio);
+  const fimMinutos = minutosDoHorario(fim);
+
+  if (fimMinutos < inicioMinutos) return [inicio];
+
+  const horarios: string[] = [];
+  for (let atual = inicioMinutos; atual <= fimMinutos; atual += 30) {
+    horarios.push(horarioDosMinutos(atual));
+  }
+
+  return horarios.length > 0 ? horarios : [inicio];
 }
 
 function carregarPedidosLocais(): PedidoLocal[] {
@@ -351,6 +421,8 @@ export default function Home() {
   const [troco, setTroco] = useState("");
   const [pedidoConfirmado, setPedidoConfirmado] = useState<PedidoLocal | null>(null);
   const [protocoloCopiado, setProtocoloCopiado] = useState(false);
+  const [encomendaAberta, setEncomendaAberta] = useState(false);
+  const [horaEncomenda, setHoraEncomenda] = useState("");
   const [consultaAberta, setConsultaAberta] = useState(false);
   const [protocoloConsulta, setProtocoloConsulta] = useState("");
   const [pedidoConsultado, setPedidoConsultado] = useState<PedidoLocal | null>(null);
@@ -358,6 +430,7 @@ export default function Home() {
   const produtoModalRef = useRef<HTMLDivElement | null>(null);
   const carrinhoModalRef = useRef<HTMLDivElement | null>(null);
   const confirmacaoModalRef = useRef<HTMLDivElement | null>(null);
+  const encomendaModalRef = useRef<HTMLDivElement | null>(null);
   const consultaModalRef = useRef<HTMLDivElement | null>(null);
 
   const fecharProduto = useCallback(() => {
@@ -368,6 +441,7 @@ export default function Home() {
   useModalClose(Boolean(produtoSelecionado), fecharProduto, produtoModalRef);
   useModalClose(carrinhoAberto, () => setCarrinhoAberto(false), carrinhoModalRef);
   useModalClose(Boolean(pedidoConfirmado), () => setPedidoConfirmado(null), confirmacaoModalRef);
+  useModalClose(encomendaAberta, () => setEncomendaAberta(false), encomendaModalRef);
   useModalClose(consultaAberta, () => setConsultaAberta(false), consultaModalRef);
 
   useEffect(() => {
@@ -389,10 +463,12 @@ export default function Home() {
 
     window.addEventListener("focus", atualizarConfig);
     window.addEventListener("storage", atualizarConfig);
+    window.addEventListener("casadilari:config-updated", atualizarConfig);
 
     return () => {
       window.removeEventListener("focus", atualizarConfig);
       window.removeEventListener("storage", atualizarConfig);
+      window.removeEventListener("casadilari:config-updated", atualizarConfig);
     };
   }, []);
 
@@ -452,6 +528,19 @@ export default function Home() {
   const totalItens = useMemo(() => {
     return carrinho.reduce((soma, item) => soma + item.quantidade, 0);
   }, [carrinho]);
+
+  const dataProximaEncomenda = useMemo(() => proximoSabado(), []);
+  const dataProximaEncomendaTexto = useMemo(
+    () => formatarDataEncomenda(dataProximaEncomenda),
+    [dataProximaEncomenda]
+  );
+  const horariosDisponiveisEncomenda = useMemo(() => {
+    return horariosEncomenda(
+      pizzaria.encomenda_hora_inicio ?? "18:00",
+      pizzaria.encomenda_hora_fim ?? "20:00"
+    );
+  }, [pizzaria.encomenda_hora_fim, pizzaria.encomenda_hora_inicio]);
+  const horarioAberturaTexto = pizzaria.encomenda_hora_inicio ?? "18:00";
 
   const produtoSelecionadoEhPizza = produtoEhPizza(produtoSelecionado);
   const produtoSelecionadoEhCombo = produtoEhCombo(produtoSelecionado);
@@ -609,7 +698,10 @@ export default function Home() {
     }
   }
 
-  function montarMensagemWhatsApp() {
+  function montarMensagemWhatsApp(
+    configAtual: Pizzaria,
+    agendamento?: { dataTexto: string; hora: string }
+  ) {
     const itens = carrinho
       .map((item, index) => {
         const totalAdicionais = item.adicionais.reduce(
@@ -654,10 +746,11 @@ export default function Home() {
         : `Pagamento: ${formaPagamento}`;
 
     return [
-      `*NOVO PEDIDO - ${pizzaria?.nome ?? "CasaDiLari"}*`,
+      `*NOVO PEDIDO - ${configAtual.nome ?? "CasaDiLari"}*`,
       "",
       `Cliente: ${nomeCliente}`,
       telefoneCliente ? `Telefone: ${telefoneCliente}` : null,
+      agendamento ? `Encomenda: ${agendamento.dataTexto} as ${agendamento.hora}` : null,
       "",
       "*Itens do pedido:*",
       itens,
@@ -672,36 +765,41 @@ export default function Home() {
     ].filter((linha) => linha !== null).join("\n");
   }
 
-  function enviarWhatsApp() {
-    const configAtual = carregarConfigPizzariaLocal();
-    setPizzaria(configAtual);
-
-    if (!configAtual.status_aberto) {
-      alert("A loja esta fechada no momento.");
-      return;
-    }
-
+  function validarDadosPedido() {
     if (carrinho.length === 0) {
       alert("Adicione pelo menos um item ao carrinho.");
-      return;
+      return false;
     }
 
     if (!nomeCliente.trim()) {
       alert("Informe seu nome.");
-      return;
+      return false;
     }
 
     if (!telefoneValido(telefoneCliente)) {
       alert("Informe um WhatsApp valido com DDD. Ex: (21) 9XXXX-XXXX.");
-      return;
+      return false;
     }
 
     if (tipoEntrega === "Entrega" && (!endereco.trim() || !bairro.trim())) {
       alert("Informe endereco e bairro para entrega.");
-      return;
+      return false;
     }
 
-    const mensagem = montarMensagemWhatsApp();
+    return true;
+  }
+
+  function finalizarPedido(agendamento?: { data: Date; hora: string }) {
+    const configAtual = carregarConfigPizzariaLocal();
+    setPizzaria(configAtual);
+
+    const agendamentoMensagem = agendamento
+      ? {
+          dataTexto: formatarDataEncomenda(agendamento.data),
+          hora: agendamento.hora,
+        }
+      : undefined;
+    const mensagem = montarMensagemWhatsApp(configAtual, agendamentoMensagem);
     const pedidosAtuais = carregarPedidosLocais();
     const proximoNumero =
       pedidosAtuais.reduce((maiorNumero, pedido) => Math.max(maiorNumero, pedido.numero), 0) + 1;
@@ -719,6 +817,9 @@ export default function Home() {
       telefone: telefoneCliente.trim(),
       status: "Recebido",
       criadoEm: new Date().toISOString(),
+      tipoPedido: agendamento ? "Encomenda" : "Agora",
+      dataEncomenda: agendamento ? dataIsoLocal(agendamento.data) : null,
+      horaEncomenda: agendamento?.hora ?? null,
       tipoEntrega,
       endereco: endereco.trim(),
       bairro: bairro.trim(),
@@ -734,6 +835,8 @@ export default function Home() {
 
     setCarrinho([]);
     setCarrinhoAberto(false);
+    setEncomendaAberta(false);
+    setHoraEncomenda("");
     setNomeCliente("");
     setTelefoneCliente("");
     setEndereco("");
@@ -753,6 +856,37 @@ export default function Home() {
 
     setPedidoConsultado(pedido);
     setProtocoloConsulta(protocolo);
+  }
+
+  function enviarWhatsApp() {
+    const configAtual = carregarConfigPizzariaLocal();
+    setPizzaria(configAtual);
+
+    if (!validarDadosPedido()) return;
+
+    if (!configAtual.status_aberto) {
+      const horarios = horariosEncomenda(
+        configAtual.encomenda_hora_inicio ?? "18:00",
+        configAtual.encomenda_hora_fim ?? "20:00"
+      );
+      setHoraEncomenda((atual) => atual || horarios[0] || "18:00");
+      setEncomendaAberta(true);
+      return;
+    }
+
+    finalizarPedido();
+  }
+
+  function confirmarEncomenda() {
+    if (!validarDadosPedido()) return;
+
+    const hora = horaEncomenda || horariosDisponiveisEncomenda[0];
+    if (!hora) {
+      alert("Escolha um horario para a encomenda.");
+      return;
+    }
+
+    finalizarPedido({ data: dataProximaEncomenda, hora });
   }
 
   function consultarPedido() {
@@ -944,24 +1078,23 @@ export default function Home() {
           />
         )}
 
-      <button
-        type="button"
-        onClick={enviarWhatsApp}
-          disabled={!pizzaria.status_aberto}
-          className={`w-full rounded-2xl px-4 py-3 text-sm font-black text-white shadow-lg transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-60 sm:py-4 ${
+        <button
+          type="button"
+          onClick={enviarWhatsApp}
+          className={`w-full rounded-2xl px-4 py-3 text-sm font-black text-white shadow-lg transition active:scale-95 sm:py-4 ${
             pizzaria.status_aberto
               ? "bg-[#22a45d] shadow-[#22a45d]/20"
-              : "bg-zinc-500 shadow-zinc-500/10"
+              : "bg-[#f2552c] shadow-[#f2552c]/20"
           }`}
         >
-          {pizzaria.status_aberto ? "Enviar pedido" : "Loja fechada"}
+          Enviar pedido
         </button>
       </div>
     </>
   );
 
   return (
-    <main className="min-h-screen bg-[#f8f5ef] text-[#1b120c]">
+    <main className="cliente-compacto min-h-screen bg-[#f8f5ef] text-[#1b120c]">
       <div className="mx-auto min-h-screen max-w-6xl bg-[#fffaf2] shadow-[0_24px_90px_rgba(43,23,12,0.08)] lg:grid lg:grid-cols-[minmax(0,1fr)_380px]">
         <section className="pb-6 lg:min-h-screen lg:pb-8">
           <header className="relative overflow-hidden bg-[#ffd65a] px-4 pb-5 pt-4 sm:px-8 sm:pb-8 sm:pt-5 lg:rounded-br-[56px]">
@@ -978,7 +1111,6 @@ export default function Home() {
                 <p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#8b3b21] sm:text-xs sm:tracking-[0.22em]">
                   {pizzaria?.nome ?? "CasaDiLari"}
                 </p>
-                <h1 className="font-serif text-2xl font-black leading-none sm:text-3xl">Pizza</h1>
               </div>
 
               <button
@@ -1010,11 +1142,19 @@ export default function Home() {
             <div className="mt-5 grid items-center gap-4 sm:mt-8 sm:grid-cols-[1fr_240px] sm:gap-5">
               <div>
                 <p className="hidden text-sm font-bold text-[#8b3b21] sm:block">
-                  {pizzaria?.status_aberto ? "Aberto agora" : "Fechado agora"}
+                  {pizzaria?.status_aberto ? "Estamos abertos" : "Estamos fechados"}
                 </p>
+                <div className="mt-1 space-y-1 text-[11px] font-bold leading-4 text-[#8b3b21] sm:hidden">
+                  {!pizzaria.status_aberto && <p>Abre as {horarioAberturaTexto}</p>}
+                  {pizzaria.endereco && <p>{pizzaria.endereco}</p>}
+                </div>
                 <h2 className="mt-1 max-w-sm font-serif text-3xl font-black leading-[1] sm:mt-2 sm:text-5xl sm:leading-[0.95]">
-                  {pizzaria?.mensagem_aviso ?? "Faca seu pedido pelo WhatsApp."}
+                  {pizzaria?.mensagem_aviso ?? "Escolha seus sabores e faca seu pedido."}
                 </h2>
+                <div className="mt-3 hidden space-y-1 text-xs font-bold leading-5 text-[#8b3b21] sm:block">
+                  {!pizzaria.status_aberto && <p>Abre as {horarioAberturaTexto}</p>}
+                  {pizzaria.endereco && <p>{pizzaria.endereco}</p>}
+                </div>
                 {pizzaria.tempo_entrega_texto && (
                   <p className="mt-3 text-xs font-bold text-[#8b3b21] sm:mt-4 sm:text-sm">
                     Entrega estimada: {pizzaria.tempo_entrega_texto}
@@ -1178,6 +1318,59 @@ export default function Home() {
               </button>
             </div>
             {carrinhoPainel}
+          </div>
+        </div>
+      )}
+
+      {encomendaAberta && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#1d1009]/55 p-4 backdrop-blur-sm">
+          <div
+            ref={encomendaModalRef}
+            className="w-full max-w-md rounded-[28px] bg-white p-5 shadow-2xl"
+          >
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-[#d14f2a]">
+              Loja fechada
+            </p>
+            <h2 className="mt-2 font-serif text-3xl font-black text-[#1d1009]">
+              Quer agendar?
+            </h2>
+            <p className="mt-2 text-sm font-semibold leading-6 text-[#8b7866]">
+              Estamos fechados no momento. Nossa proxima data e {dataProximaEncomendaTexto}.
+            </p>
+
+            <label className="mt-5 block">
+              <span className="mb-2 block text-sm font-black text-[#1d1009]">
+                Escolha o horario
+              </span>
+              <select
+                value={horaEncomenda || horariosDisponiveisEncomenda[0] || ""}
+                onChange={(event) => setHoraEncomenda(event.target.value)}
+                className="h-12 w-full rounded-2xl border border-[#eadfcc] bg-[#fffaf2] px-4 text-sm font-bold text-[#1d1009] outline-none focus:border-[#f2552c]"
+              >
+                {horariosDisponiveisEncomenda.map((horario) => (
+                  <option key={horario} value={horario}>
+                    {horario}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <div className="mt-5 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setEncomendaAberta(false)}
+                className="rounded-2xl border border-[#eadfcc] bg-[#fff8ea] px-4 py-3 text-sm font-black text-[#1d1009]"
+              >
+                Voltar
+              </button>
+              <button
+                type="button"
+                onClick={confirmarEncomenda}
+                className="rounded-2xl bg-[#f2552c] px-4 py-3 text-sm font-black text-white"
+              >
+                Reservar
+              </button>
+            </div>
           </div>
         </div>
       )}

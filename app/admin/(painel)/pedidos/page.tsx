@@ -32,6 +32,9 @@ type PedidoLocal = {
   telefone?: string;
   status: PedidoStatus;
   criadoEm: string;
+  tipoPedido?: "Agora" | "Encomenda";
+  dataEncomenda?: string | null;
+  horaEncomenda?: string | null;
   tipoEntrega: "Entrega" | "Retirada";
   endereco: string;
   bairro: string;
@@ -61,6 +64,10 @@ function pedidosLocaisKey(pizzariaId: string) {
   return `casadilari:pedidos:${pizzariaId}`;
 }
 
+function historicoPedidosLocaisKey(pizzariaId: string) {
+  return `casadilari:pedidos-historico:${pizzariaId}`;
+}
+
 function carregarPedidosLocais(pizzariaId: string): PedidoLocal[] {
   if (typeof window === "undefined") return [];
 
@@ -86,10 +93,27 @@ function carregarPedidosLocais(pizzariaId: string): PedidoLocal[] {
   }
 }
 
+function carregarHistoricoPedidosLocais(pizzariaId: string): PedidoLocal[] {
+  if (typeof window === "undefined") return [];
+
+  try {
+    const valor = window.localStorage.getItem(historicoPedidosLocaisKey(pizzariaId));
+    return valor ? (JSON.parse(valor) as PedidoLocal[]) : [];
+  } catch {
+    return [];
+  }
+}
+
 function salvarPedidosLocais(pizzariaId: string, pedidos: PedidoLocal[]) {
   if (typeof window === "undefined") return;
 
   window.localStorage.setItem(pedidosLocaisKey(pizzariaId), JSON.stringify(pedidos));
+}
+
+function salvarHistoricoPedidosLocais(pizzariaId: string, pedidos: PedidoLocal[]) {
+  if (typeof window === "undefined") return;
+
+  window.localStorage.setItem(historicoPedidosLocaisKey(pizzariaId), JSON.stringify(pedidos));
 }
 
 function dinheiro(valor: number) {
@@ -104,6 +128,19 @@ function dataPedido(valor: string) {
     dateStyle: "short",
     timeStyle: "short",
   }).format(new Date(valor));
+}
+
+function dataEncomenda(valor?: string | null) {
+  if (!valor) return "";
+
+  const [ano, mes, dia] = valor.split("-").map(Number);
+  const data = new Date(ano, (mes ?? 1) - 1, dia ?? 1);
+
+  return new Intl.DateTimeFormat("pt-BR", {
+    weekday: "long",
+    day: "2-digit",
+    month: "2-digit",
+  }).format(data);
 }
 
 function resumirSabores(sabores: { nome: string }[]) {
@@ -206,10 +243,23 @@ export default function PedidosPage() {
   function limparFinalizados() {
     if (!pizzaria) return;
 
+    const pedidosEncerrados = pedidos.filter((pedido) => pedido.status === "Encerrado");
     const proximosPedidos = pedidos.filter((pedido) => pedido.status !== "Encerrado");
+    const historicoAtual = carregarHistoricoPedidosLocais(pizzaria.id);
+    const historicoSemDuplicados = historicoAtual.filter(
+      (pedidoHistorico) =>
+        !pedidosEncerrados.some((pedidoEncerrado) => pedidoEncerrado.id === pedidoHistorico.id)
+    );
 
     setPedidos(proximosPedidos);
     salvarPedidosLocais(pizzaria.id, proximosPedidos);
+    salvarHistoricoPedidosLocais(pizzaria.id, [
+      ...pedidosEncerrados.map((pedido) => ({
+        ...pedido,
+        status: "Encerrado" as const,
+      })),
+      ...historicoSemDuplicados,
+    ]);
   }
 
   function recarregarPedidos() {
@@ -310,6 +360,11 @@ export default function PedidosPage() {
                 <p className="mt-1 text-xs font-black uppercase tracking-[0.14em] text-[#a0643f]">
                   Protocolo {pedido.protocolo ?? `PED-${String(pedido.numero).padStart(4, "0")}`}
                 </p>
+                {pedido.tipoPedido === "Encomenda" && (
+                  <p className="mt-3 inline-flex rounded-full bg-[#ff7a3d] px-3 py-2 text-xs font-black uppercase tracking-[0.12em] text-white">
+                    Encomenda para {dataEncomenda(pedido.dataEncomenda)} as {pedido.horaEncomenda}
+                  </p>
+                )}
                 {pedido.telefone && (
                   <p className="mt-1 text-sm font-bold text-[#a0643f]">
                     {pedido.telefone}

@@ -20,7 +20,10 @@ export default function ConfiguracoesPage() {
   const { pizzaria, erro, carregando } = useAdminPizzaria();
   const [nomeLoja, setNomeLoja] = useState("");
   const [whatsapp, setWhatsapp] = useState("");
+  const [enderecoLoja, setEnderecoLoja] = useState("");
   const [tempoEntrega, setTempoEntrega] = useState("");
+  const [horaEncomendaInicio, setHoraEncomendaInicio] = useState("18:00");
+  const [horaEncomendaFim, setHoraEncomendaFim] = useState("20:00");
   const [lojaAberta, setLojaAberta] = useState(true);
   const [fotoLoja, setFotoLoja] = useState("");
   const [salvando, setSalvando] = useState(false);
@@ -33,7 +36,10 @@ export default function ConfiguracoesPage() {
       const config = carregarConfigPizzariaLocal();
       setNomeLoja(config.nome ?? "");
       setWhatsapp(config.whatsapp ?? "");
+      setEnderecoLoja(config.endereco ?? "");
       setTempoEntrega(config.tempo_entrega_texto ?? "");
+      setHoraEncomendaInicio(config.encomenda_hora_inicio ?? "18:00");
+      setHoraEncomendaFim(config.encomenda_hora_fim ?? "20:00");
       setLojaAberta(Boolean(config.status_aberto));
       setFotoLoja(config.imagem_url ?? "");
     }, 0);
@@ -62,6 +68,35 @@ export default function ConfiguracoesPage() {
     }, 2000);
   }
 
+  function montarConfig(statusAberto = lojaAberta) {
+    const configAtual = carregarConfigPizzariaLocal();
+
+    return {
+      ...configAtual,
+      nome: nomeLoja.trim() || "Minha pizzaria",
+      slug: nomeLoja.trim() || "Minha pizzaria",
+      whatsapp: whatsapp.trim(),
+      endereco: enderecoLoja.trim(),
+      status_aberto: statusAberto,
+      tempo_entrega_texto: tempoEntrega.trim() || null,
+      encomenda_hora_inicio: horaEncomendaInicio || "18:00",
+      encomenda_hora_fim: horaEncomendaFim || "20:00",
+      imagem_url: fotoLoja || null,
+    };
+  }
+
+  function salvarConfigLocal(config: ReturnType<typeof montarConfig>) {
+    window.localStorage.setItem(pizzariaConfigKey(config.id), JSON.stringify(config));
+    window.localStorage.setItem(pizzariaConfigKey(), JSON.stringify(config));
+    window.dispatchEvent(new Event("casadilari:config-updated"));
+  }
+
+  function alternarLojaAberta() {
+    const proximoStatus = !lojaAberta;
+    setLojaAberta(proximoStatus);
+    salvarConfigLocal(montarConfig(proximoStatus));
+  }
+
   async function selecionarFoto(arquivo: File | null) {
     if (!arquivo) return;
 
@@ -85,18 +120,7 @@ export default function ConfiguracoesPage() {
     setFeedback("");
 
     window.setTimeout(() => {
-      const proximaConfig = {
-        ...pizzaria,
-        nome: nomeLoja.trim() || "Minha pizzaria",
-        slug: nomeLoja.trim() || "Minha pizzaria",
-        whatsapp: whatsapp.trim(),
-        status_aberto: lojaAberta,
-        tempo_entrega_texto: tempoEntrega.trim() || null,
-        imagem_url: fotoLoja || null,
-      };
-
-      window.localStorage.setItem(pizzariaConfigKey(pizzaria.id), JSON.stringify(proximaConfig));
-      window.localStorage.setItem(pizzariaConfigKey(), JSON.stringify(proximaConfig));
+      salvarConfigLocal(montarConfig());
       setSalvando(false);
       mostrarSucesso();
     }, 450);
@@ -155,7 +179,7 @@ export default function ConfiguracoesPage() {
                 type="button"
                 role="switch"
                 aria-checked={lojaAberta}
-                onClick={() => setLojaAberta((atual) => !atual)}
+                onClick={alternarLojaAberta}
                 className={`relative h-9 w-16 shrink-0 rounded-full p-1 transition ${
                   lojaAberta ? "bg-[#22a45d]" : "bg-zinc-700"
                 }`}
@@ -205,6 +229,18 @@ export default function ConfiguracoesPage() {
 
               <label>
                 <span className="mb-2 block text-sm font-black text-zinc-200">
+                  Endereco
+                </span>
+                <input
+                  value={enderecoLoja}
+                  onChange={(event) => setEnderecoLoja(event.target.value)}
+                  placeholder="Ex: Rua das Pizzas, 123"
+                  className="h-12 w-full rounded-2xl border border-white/10 bg-[#0f0c0b] px-4 text-sm font-bold text-white outline-none focus:border-[#ff7a3d]"
+                />
+              </label>
+
+              <label>
+                <span className="mb-2 block text-sm font-black text-zinc-200">
                   Tempo de entrega
                 </span>
                 <input
@@ -217,6 +253,39 @@ export default function ConfiguracoesPage() {
                   Se deixar vazio, essa informacao nao aparece para o cliente.
                 </span>
               </label>
+
+              <div className="rounded-3xl border border-white/10 bg-[#0f0c0b] p-4">
+                <h2 className="text-lg font-black text-white">Horario de encomenda</h2>
+                <p className="mt-1 text-sm font-bold leading-6 text-zinc-400">
+                  Quando a loja estiver fechada, o cliente so pode reservar dentro desse horario.
+                </p>
+
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <label>
+                    <span className="mb-2 block text-sm font-black text-zinc-200">
+                      Abertura
+                    </span>
+                    <input
+                      type="time"
+                      value={horaEncomendaInicio}
+                      onChange={(event) => setHoraEncomendaInicio(event.target.value)}
+                      className="h-12 w-full rounded-2xl border border-white/10 bg-[#15100e] px-4 text-sm font-bold text-white outline-none focus:border-[#ff7a3d]"
+                    />
+                  </label>
+
+                  <label>
+                    <span className="mb-2 block text-sm font-black text-zinc-200">
+                      Fechamento
+                    </span>
+                    <input
+                      type="time"
+                      value={horaEncomendaFim}
+                      onChange={(event) => setHoraEncomendaFim(event.target.value)}
+                      className="h-12 w-full rounded-2xl border border-white/10 bg-[#15100e] px-4 text-sm font-bold text-white outline-none focus:border-[#ff7a3d]"
+                    />
+                  </label>
+                </div>
+              </div>
             </div>
           </section>
 

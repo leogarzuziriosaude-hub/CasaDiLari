@@ -43,3 +43,47 @@ input,
 select {
   font: inherit;
 }
+
+@media (max-width: 639px) {
+  .cliente-compacto {
+    font-size: 13px;
+  }
+
+  .cliente-compacto .text-\[10px\] {
+    font-size: 9px;
+  }
+
+  .cliente-compacto .text-\[11px\] {
+    font-size: 10px;
+  }
+
+  .cliente-compacto .text-xs {
+    font-size: 10px;
+    line-height: 1.35;
+  }
+
+  .cliente-compacto .text-sm {
+    font-size: 12px;
+    line-height: 1.45;
+  }
+
+  .cliente-compacto .text-base {
+    font-size: 13px;
+  }
+
+  .cliente-compacto .text-lg {
+    font-size: 15px;
+  }
+
+  .cliente-compacto .text-xl {
+    font-size: 17px;
+  }
+
+  .cliente-compacto .text-2xl {
+    font-size: 20px;
+  }
+
+  .cliente-compacto .text-3xl {
+    font-size: 26px;
+  }
+}
