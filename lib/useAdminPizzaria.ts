@@ -46,7 +46,7 @@ const pizzariaFrontOnly: PizzariaAdmin = {
   permite_encomendas: true,
   encomenda_hora_inicio: "18:00",
   encomenda_hora_fim: "20:00",
-  mensagem_aviso: "Escolha seus sabores e faca seu pedido.",
+  mensagem_aviso: "Escolha seus sabores e faça seu pedido.",
   imagem_url: null,
 };
 
@@ -61,7 +61,10 @@ export function carregarConfigPizzariaLocal(): PizzariaAdmin {
     const valor = window.localStorage.getItem(pizzariaConfigKey());
     const config = valor ? { ...pizzariaFrontOnly, ...JSON.parse(valor) } : pizzariaFrontOnly;
 
-    if (config.mensagem_aviso === "Monte o cardapio pelo front.") {
+    if (
+      config.mensagem_aviso === "Monte o cardapio pelo front." ||
+      config.mensagem_aviso === "Escolha seus sabores e faca seu pedido."
+    ) {
       return {
         ...config,
         mensagem_aviso: pizzariaFrontOnly.mensagem_aviso,

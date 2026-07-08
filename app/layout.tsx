@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Pizza SaaS",
+  title: "Casa Di Lari",
   description: "Plataforma de pedidos e gestão para pizzarias.",
 };
 

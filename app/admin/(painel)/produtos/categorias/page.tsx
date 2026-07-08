@@ -132,7 +132,7 @@ export default function CategoriasPage() {
     );
 
     if (nomeJaExiste) {
-      setErroCategorias("Ja existe uma categoria com esse nome.");
+      setErroCategorias("Já existe uma categoria com esse nome.");
       setSalvando(false);
       return;
     }
@@ -271,10 +271,10 @@ export default function CategoriasPage() {
             </p>
             <h1 className="mt-3 text-3xl font-black text-white">Categorias</h1>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-300">
-              Organize o cardapio em grupos como tradicionais, especiais, bebidas e combos.
+              Organize o cardápio em grupos como tradicionais, especiais, bebidas e combos.
             </p>
             <p className="mt-2 text-xs font-bold text-zinc-500">
-              Arraste pela alca para mudar a ordem ou use as setas.
+              Arraste pela alça para mudar a ordem ou use as setas.
             </p>
           </div>
 
@@ -446,7 +446,7 @@ export default function CategoriasPage() {
       <ConfirmDialog
         aberto={Boolean(categoriaParaExcluir)}
         titulo="Excluir categoria?"
-        descricao={`A categoria "${categoriaParaExcluir?.nome ?? ""}" sera removida das opcoes ativas do cardapio.`}
+        descricao={`A categoria "${categoriaParaExcluir?.nome ?? ""}" será removida das opções ativas do cardápio.`}
         confirmando={excluindo}
         onCancelar={() => setCategoriaParaExcluir(null)}
         onConfirmar={confirmarExclusaoCategoria}

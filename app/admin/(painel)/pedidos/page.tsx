@@ -60,6 +60,12 @@ const statusAtivos: PedidoStatus[] = [
   "Disponivel para retirada",
 ];
 
+function rotuloStatus(status: PedidoStatus | "Todos") {
+  if (status === "Disponivel para retirada") return "Disponível para retirada";
+  if (status === "Todos") return "Todos";
+  return status;
+}
+
 function pedidosLocaisKey(pizzariaId: string) {
   return `casadilari:pedidos:${pizzariaId}`;
 }
@@ -163,18 +169,18 @@ function normalizarTelefone(telefone?: string) {
 
 function mensagemStatus(pedido: PedidoLocal, status: PedidoStatus) {
   if (status === "Em preparo") {
-    return `Oi, ${pedido.cliente}! Seu pedido ${pedido.protocolo ?? `#${pedido.numero}`} ja esta em preparo. Ta no forno.`;
+    return `Oi, ${pedido.cliente}! Seu pedido ${pedido.protocolo ?? `#${pedido.numero}`} já está em preparo. Tá no forno.`;
   }
 
   if (status === "Encerrado") {
-    return `Oi, ${pedido.cliente}! Seu pedido ${pedido.protocolo ?? `#${pedido.numero}`} foi encerrado. Obrigado pela preferencia.`;
+    return `Oi, ${pedido.cliente}! Seu pedido ${pedido.protocolo ?? `#${pedido.numero}`} foi encerrado. Obrigado pela preferência.`;
   }
 
   if (status === "Disponivel para retirada") {
-    return `Oi, ${pedido.cliente}! Seu pedido ${pedido.protocolo ?? `#${pedido.numero}`} esta pronto. Pode vir buscar.`;
+    return `Oi, ${pedido.cliente}! Seu pedido ${pedido.protocolo ?? `#${pedido.numero}`} está pronto. Pode vir buscar.`;
   }
 
-  return `Oi, ${pedido.cliente}! Seu pedido ${pedido.protocolo ?? `#${pedido.numero}`} saiu pra entrega. Estamos indo ate voce.`;
+  return `Oi, ${pedido.cliente}! Seu pedido ${pedido.protocolo ?? `#${pedido.numero}`} saiu pra entrega. Estamos indo até você.`;
 }
 
 function abrirWhatsAppCliente(pedido: PedidoLocal, status: PedidoStatus) {
@@ -323,7 +329,7 @@ export default function PedidosPage() {
             }`}
           >
             <span className="block text-xs font-black uppercase tracking-[0.14em]">
-              {status === "Encerrado" ? "Encerrados" : status}
+              {status === "Encerrado" ? "Encerrados" : rotuloStatus(status)}
             </span>
             <span className="mt-2 block text-2xl font-black">
               {status === "Todos"
@@ -349,7 +355,7 @@ export default function PedidosPage() {
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div>
                 <p className="text-xs font-black uppercase tracking-[0.18em] text-[#ffb26a]">
-                  {pedido.status}
+                  {rotuloStatus(pedido.status)}
                 </p>
                 <h2 className="mt-2 text-2xl font-black text-[#1f120d]">
                   Pedido #{pedido.numero}
@@ -362,7 +368,7 @@ export default function PedidosPage() {
                 </p>
                 {pedido.tipoPedido === "Encomenda" && (
                   <p className="mt-3 inline-flex rounded-full bg-[#ff7a3d] px-3 py-2 text-xs font-black uppercase tracking-[0.12em] text-white">
-                    Encomenda para {dataEncomenda(pedido.dataEncomenda)} as {pedido.horaEncomenda}
+                    Encomenda para {dataEncomenda(pedido.dataEncomenda)} às {pedido.horaEncomenda}
                   </p>
                 )}
                 {pedido.telefone && (
@@ -380,7 +386,7 @@ export default function PedidosPage() {
                 >
                   {statusPedido.map((status) => (
                     <option key={status} value={status}>
-                      {status}
+                      {rotuloStatus(status)}
                     </option>
                   ))}
                 </select>

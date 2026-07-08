@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { ReactNode, useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { useAdminPizzaria } from "@/lib/useAdminPizzaria";
+import { supabase } from "@/lib/supabase";
 
 type MenuItem = {
   label: string;
@@ -15,10 +17,51 @@ type MenuItem = {
 
 const menuItems: MenuItem[] = [
   { label: "Pedidos", href: "/admin/pedidos" },
-  { label: "Cardapio", href: "/admin/produtos" },
-  { label: "Configuracoes", href: "/admin/configuracoes" },
-  { label: "Historico", href: "/admin/historico" },
+  { label: "Cardápio", href: "/admin/produtos" },
+  { label: "Configurações", href: "/admin/configuracoes" },
+  { label: "Histórico", href: "/admin/historico" },
 ];
+
+function iniciais(nome: string) {
+  return nome
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((parte) => parte[0])
+    .join("")
+    .toUpperCase();
+}
+
+function MarcaLoja({ compacta = false }: { compacta?: boolean }) {
+  const { pizzaria } = useAdminPizzaria();
+  const nome = pizzaria?.nome ?? "Loja";
+
+  return (
+    <div className={`flex flex-col items-center text-center ${compacta ? "gap-2" : "gap-4"}`}>
+      <div
+        className={`grid shrink-0 place-items-center overflow-hidden rounded-full bg-[#ff7a3d] text-[#210f0b] shadow-xl shadow-black/25 ${
+          compacta ? "h-12 w-12 text-base" : "h-32 w-32 text-4xl"
+        }`}
+      >
+        {pizzaria?.imagem_url ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={pizzaria.imagem_url}
+            alt={nome}
+            className="h-full w-full object-cover"
+          />
+        ) : (
+          <span className="font-black">{iniciais(nome)}</span>
+        )}
+      </div>
+      <div>
+        <p className={`${compacta ? "text-sm" : "text-sm"} font-black text-white`}>
+          {nome}
+        </p>
+      </div>
+    </div>
+  );
+}
 
 function MenuIcon({ aberto }: { aberto: boolean }) {
   return (
@@ -130,8 +173,54 @@ export default function AdminPainelLayout({
 }) {
   const pathname = usePathname();
   const router = useRouter();
+  const { pizzaria } = useAdminPizzaria();
 
   const [menuAberto, setMenuAberto] = useState(false);
+  const [autorizado, setAutorizado] = useState(false);
+  const [verificandoSessao, setVerificandoSessao] = useState(true);
+
+  useEffect(() => {
+    let ativo = true;
+
+    async function verificarSessao() {
+      const { data } = await supabase.auth.getSession();
+      const temSessao = Boolean(data.session);
+
+      if (!ativo) return;
+
+      if (!temSessao) {
+        setAutorizado(false);
+        setVerificandoSessao(false);
+        router.replace("/admin/login");
+        return;
+      }
+
+      setAutorizado(true);
+      setVerificandoSessao(false);
+    }
+
+    void verificarSessao();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!ativo) return;
+
+      if (!session) {
+        setAutorizado(false);
+        router.replace("/admin/login");
+        return;
+      }
+
+      setAutorizado(true);
+      setVerificandoSessao(false);
+    });
+
+    return () => {
+      ativo = false;
+      subscription.unsubscribe();
+    };
+  }, [router]);
 
   useEffect(() => {
     if (!menuAberto) {
@@ -155,24 +244,28 @@ export default function AdminPainelLayout({
     };
   }, [menuAberto]);
 
-  function sair() {
-    router.push("/admin/login");
+  async function sair() {
+    await supabase.auth.signOut();
+    router.replace("/admin/login");
+  }
+
+  if (verificandoSessao || !autorizado) {
+    return (
+      <main className="grid min-h-screen place-items-center bg-[radial-gradient(circle_at_top,#2b1511_0%,#140f0d_48%,#0b0908_100%)] px-4 text-zinc-100">
+        <div className="rounded-[28px] border border-white/10 bg-white/[0.04] px-6 py-5 text-center shadow-2xl shadow-black/20">
+          <span className="mx-auto block h-8 w-8 animate-spin rounded-full border-2 border-white/30 border-t-[#ff7a3d]" />
+          <p className="mt-4 text-sm font-black">Verificando acesso...</p>
+        </div>
+      </main>
+    );
   }
 
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,#2b1511_0%,#140f0d_48%,#0b0908_100%)] text-zinc-100">
       <div className="flex min-h-screen">
         <aside className="hidden w-80 flex-col border-r border-white/10 bg-white/[0.04] px-5 py-6 backdrop-blur lg:flex">
-          <div className="rounded-[28px] border border-white/10 bg-gradient-to-br from-[#ffb74d] via-[#ff7a3d] to-[#b8362b] p-5 text-[#210f0b] shadow-2xl shadow-black/20">
-            <p className="text-[11px] font-black uppercase tracking-[0.3em] text-[#3a170d]">
-              Pizza SaaS
-            </p>
-            <h1 className="mt-2 text-2xl font-black leading-tight">
-              Painel da pizzaria
-            </h1>
-            <p className="mt-2 max-w-xs text-sm font-medium text-[#3a170d]/85">
-              Controle pedidos, precos, cardapio e configuracoes num so lugar.
-            </p>
+          <div className="rounded-[28px] border border-white/10 bg-white/[0.03] p-5 shadow-2xl shadow-black/20">
+            <MarcaLoja />
           </div>
 
           <nav className="mt-6 flex flex-1 flex-col gap-2">
@@ -200,12 +293,10 @@ export default function AdminPainelLayout({
             </button>
 
             <div className="min-w-0">
-              <p className="text-[11px] font-black uppercase tracking-[0.24em] text-[#ffb26a]">
-                Pizza SaaS
-              </p>
-              <h1 className="truncate text-sm font-bold text-zinc-100">
-                Painel da pizzaria
+              <h1 className="truncate text-sm font-black text-zinc-100">
+                {pizzaria?.nome ?? "Loja"}
               </h1>
+              <p className="text-xs font-bold text-zinc-400">Painel de pizzaria</p>
             </div>
 
             <button
@@ -241,16 +332,8 @@ export default function AdminPainelLayout({
             menuAberto ? "translate-x-0" : "-translate-x-full"
           }`}
         >
-          <div className="rounded-[28px] border border-white/10 bg-gradient-to-br from-[#ffb74d] via-[#ff7a3d] to-[#b8362b] p-5 text-[#210f0b] shadow-2xl shadow-black/20">
-            <p className="text-[11px] font-black uppercase tracking-[0.3em] text-[#3a170d]">
-              Pizza SaaS
-            </p>
-            <h2 className="mt-2 text-2xl font-black leading-tight">
-              Painel da pizzaria
-            </h2>
-            <p className="mt-2 text-sm font-medium text-[#3a170d]/85">
-              Menu rapido para pedidos, produtos e ajustes de preco.
-            </p>
+          <div className="rounded-[28px] border border-white/10 bg-white/[0.03] p-5 shadow-2xl shadow-black/20">
+            <MarcaLoja />
           </div>
 
           <nav className="mt-6 flex flex-1 flex-col gap-2">

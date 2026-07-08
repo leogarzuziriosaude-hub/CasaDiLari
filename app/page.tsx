@@ -89,7 +89,10 @@ type PedidoLocal = {
   mensagem: string;
 };
 
-const formasPagamento = ["Pix", "Dinheiro", "Cartao de Credito", "Cartao de Debito"];
+const formasPagamento = ["Pix", "Dinheiro", "Cartão de Crédito", "Cartão de Débito"];
+const intervaloMinimoEntrePedidosMs = 20_000;
+const limitePedidosPorJanela = 3;
+const janelaAntiSpamMs = 5 * 60_000;
 
 function dinheiro(valor: number) {
   return valor.toLocaleString("pt-BR", {
@@ -193,8 +196,8 @@ function carregarProdutosLocais(): Produto[] {
         id: produto.id,
         nome: produto.nome,
         categoria: produto.categoria_id
-          ? categoriasPorId.get(produto.categoria_id) ?? produto.categoria ?? "Cardapio"
-          : produto.categoria ?? "Cardapio",
+          ? categoriasPorId.get(produto.categoria_id) ?? produto.categoria ?? "Cardápio"
+          : produto.categoria ?? "Cardápio",
         descricao: produto.descricao ?? "",
         destaque: false,
         imagemUrl: produto.imagem_url ?? null,
@@ -233,7 +236,7 @@ const pizzariaFrontOnly: Pizzaria = {
   tempo_entrega_texto: "30-45 min",
   encomenda_hora_inicio: "18:00",
   encomenda_hora_fim: "20:00",
-  mensagem_aviso: "Escolha seus sabores e faca seu pedido.",
+  mensagem_aviso: "Escolha seus sabores e faça seu pedido.",
   imagem_url: null,
 };
 
@@ -246,7 +249,8 @@ function carregarConfigPizzariaLocal(): Pizzaria {
 
     if (
       config.mensagem_aviso === "Monte o cardapio pelo front." ||
-      config.mensagem_aviso === "Faca seu pedido pelo WhatsApp."
+      config.mensagem_aviso === "Faca seu pedido pelo WhatsApp." ||
+      config.mensagem_aviso === "Escolha seus sabores e faca seu pedido."
     ) {
       return {
         ...config,
@@ -383,11 +387,72 @@ function telefoneValido(valor: string) {
   return semCodigoBrasil.length === 10 || semCodigoBrasil.length === 11;
 }
 
+function antiSpamPedidoKey(telefone: string) {
+  const numeros = limparTelefone(telefone) || "sem-telefone";
+  return `casadilari:pedido-anti-spam:${numeros}`;
+}
+
+function carregarTentativasPedido(telefone: string) {
+  if (typeof window === "undefined") return [];
+
+  try {
+    const valor = window.localStorage.getItem(antiSpamPedidoKey(telefone));
+    return valor ? (JSON.parse(valor) as number[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function salvarTentativasPedido(telefone: string, tentativas: number[]) {
+  if (typeof window === "undefined") return;
+
+  window.localStorage.setItem(antiSpamPedidoKey(telefone), JSON.stringify(tentativas));
+}
+
+function validarAntiSpamPedido(telefone: string) {
+  const agora = Date.now();
+  const recentes = carregarTentativasPedido(telefone).filter(
+    (tentativa) => agora - tentativa < janelaAntiSpamMs
+  );
+  const ultimaTentativa = recentes[recentes.length - 1];
+
+  if (ultimaTentativa && agora - ultimaTentativa < intervaloMinimoEntrePedidosMs) {
+    const segundos = Math.ceil((intervaloMinimoEntrePedidosMs - (agora - ultimaTentativa)) / 1000);
+    return {
+      permitido: false,
+      mensagem: `Aguarde ${segundos} segundos antes de enviar outro pedido.`,
+    };
+  }
+
+  if (recentes.length >= limitePedidosPorJanela) {
+    return {
+      permitido: false,
+      mensagem: "Recebemos muitos pedidos em sequência. Tente novamente em alguns minutos.",
+    };
+  }
+
+  return { permitido: true, mensagem: "" };
+}
+
+function registrarEnvioPedido(telefone: string) {
+  const agora = Date.now();
+  const recentes = carregarTentativasPedido(telefone).filter(
+    (tentativa) => agora - tentativa < janelaAntiSpamMs
+  );
+
+  salvarTentativasPedido(telefone, [...recentes, agora]);
+}
+
 function textoStatusCliente(status?: PedidoLocal["status"]) {
   if (status === "Em preparo") return "Estamos preparando seu pedido.";
   if (status === "Saiu pra entrega") return "Seu pedido saiu pra entrega.";
-  if (status === "Disponivel para retirada") return "Seu pedido esta disponivel para retirada.";
+  if (status === "Disponivel para retirada") return "Seu pedido está disponível para retirada.";
   return "Pedido recebido.";
+}
+
+function rotuloStatusCliente(status?: PedidoLocal["status"]) {
+  if (status === "Disponivel para retirada") return "Disponível para retirada";
+  return status ?? "Recebido";
 }
 
 export default function Home() {
@@ -427,11 +492,13 @@ export default function Home() {
   const [protocoloConsulta, setProtocoloConsulta] = useState("");
   const [pedidoConsultado, setPedidoConsultado] = useState<PedidoLocal | null>(null);
   const [erroConsulta, setErroConsulta] = useState("");
+  const [enviandoPedido, setEnviandoPedido] = useState(false);
   const produtoModalRef = useRef<HTMLDivElement | null>(null);
   const carrinhoModalRef = useRef<HTMLDivElement | null>(null);
   const confirmacaoModalRef = useRef<HTMLDivElement | null>(null);
   const encomendaModalRef = useRef<HTMLDivElement | null>(null);
   const consultaModalRef = useRef<HTMLDivElement | null>(null);
+  const envioEmAndamentoRef = useRef(false);
 
   const fecharProduto = useCallback(() => {
     setProdutoSelecionado(null);
@@ -541,6 +608,12 @@ export default function Home() {
     );
   }, [pizzaria.encomenda_hora_fim, pizzaria.encomenda_hora_inicio]);
   const horarioAberturaTexto = pizzaria.encomenda_hora_inicio ?? "18:00";
+  const whatsappSuporte = telefoneParaWhatsApp(pizzaria.whatsapp);
+  const suporteWhatsappUrl = whatsappSuporte
+    ? `https://wa.me/${whatsappSuporte}?text=${encodeURIComponent(
+        "Oi, estou com problema, pode me ajudar?"
+      )}`
+    : "";
 
   const produtoSelecionadoEhPizza = produtoEhPizza(produtoSelecionado);
   const produtoSelecionadoEhCombo = produtoEhCombo(produtoSelecionado);
@@ -715,7 +788,7 @@ export default function Home() {
           categoriaEhPizza(item.categoria) && item.sabores.length > 0
             ? `   Sabores: ${resumirSabores(item.sabores)}`
             : null,
-          item.opcao && !categoriaEhCombo(item.categoria) ? `   Opcao: ${item.opcao}` : null,
+          item.opcao && !categoriaEhCombo(item.categoria) ? `   Opção: ${item.opcao}` : null,
           categoriaEhPizza(item.categoria) ? `   Borda: ${item.borda}` : null,
           item.adicionais.length > 0
             ? `   Adicionais: ${item.adicionais.map((adicional) => adicional.nome).join(", ")}`
@@ -732,13 +805,13 @@ export default function Home() {
       tipoEntrega === "Entrega"
         ? [
             "Tipo: Entrega",
-            `Endereco: ${endereco}`,
+            `Endereço: ${endereco}`,
             `Bairro: ${bairro}`,
-            referencia ? `Referencia: ${referencia}` : null,
+            referencia ? `Referência: ${referencia}` : null,
           ]
             .filter(Boolean)
             .join("\n")
-        : "Tipo: Retirada no balcao";
+        : "Tipo: Retirada no balcão";
 
     const pagamento =
       formaPagamento === "Dinheiro" && troco
@@ -750,7 +823,7 @@ export default function Home() {
       "",
       `Cliente: ${nomeCliente}`,
       telefoneCliente ? `Telefone: ${telefoneCliente}` : null,
-      agendamento ? `Encomenda: ${agendamento.dataTexto} as ${agendamento.hora}` : null,
+      agendamento ? `Encomenda: ${agendamento.dataTexto} às ${agendamento.hora}` : null,
       "",
       "*Itens do pedido:*",
       itens,
@@ -777,12 +850,12 @@ export default function Home() {
     }
 
     if (!telefoneValido(telefoneCliente)) {
-      alert("Informe um WhatsApp valido com DDD. Ex: (21) 9XXXX-XXXX.");
+      alert("Informe um WhatsApp válido com DDD. Ex: (21) 9XXXX-XXXX.");
       return false;
     }
 
     if (tipoEntrega === "Entrega" && (!endereco.trim() || !bairro.trim())) {
-      alert("Informe endereco e bairro para entrega.");
+      alert("Informe endereço e bairro para entrega.");
       return false;
     }
 
@@ -790,8 +863,21 @@ export default function Home() {
   }
 
   function finalizarPedido(agendamento?: { data: Date; hora: string }) {
+    if (envioEmAndamentoRef.current) return;
+
+    envioEmAndamentoRef.current = true;
+    setEnviandoPedido(true);
+
     const configAtual = carregarConfigPizzariaLocal();
     setPizzaria(configAtual);
+
+    const antiSpam = validarAntiSpamPedido(telefoneCliente);
+    if (!antiSpam.permitido) {
+      envioEmAndamentoRef.current = false;
+      setEnviandoPedido(false);
+      alert(antiSpam.mensagem);
+      return;
+    }
 
     const agendamentoMensagem = agendamento
       ? {
@@ -832,6 +918,7 @@ export default function Home() {
     };
 
     salvarPedidosLocais([pedido, ...pedidosAtuais]);
+    registrarEnvioPedido(telefoneCliente);
 
     setCarrinho([]);
     setCarrinhoAberto(false);
@@ -850,15 +937,21 @@ export default function Home() {
 
     if (whatsapp) {
       const url = `https://wa.me/${whatsapp}?text=${encodeURIComponent(mensagem)}`;
-      window.location.href = url;
-      return;
+      window.open(url, "_blank", "noopener,noreferrer");
+    } else {
+      setPedidoConsultado(pedido);
+      setProtocoloConsulta(protocolo);
     }
 
-    setPedidoConsultado(pedido);
-    setProtocoloConsulta(protocolo);
+    window.setTimeout(() => {
+      envioEmAndamentoRef.current = false;
+      setEnviandoPedido(false);
+    }, 800);
   }
 
   function enviarWhatsApp() {
+    if (envioEmAndamentoRef.current) return;
+
     const configAtual = carregarConfigPizzariaLocal();
     setPizzaria(configAtual);
 
@@ -878,11 +971,13 @@ export default function Home() {
   }
 
   function confirmarEncomenda() {
+    if (envioEmAndamentoRef.current) return;
+
     if (!validarDadosPedido()) return;
 
     const hora = horaEncomenda || horariosDisponiveisEncomenda[0];
     if (!hora) {
-      alert("Escolha um horario para a encomenda.");
+      alert("Escolha um horário para a encomenda.");
       return;
     }
 
@@ -897,7 +992,7 @@ export default function Home() {
 
     if (!pedido) {
       setPedidoConsultado(null);
-      setErroConsulta("Pedido nao encontrado. Confira o protocolo e tente novamente.");
+      setErroConsulta("Pedido não encontrado. Confira o protocolo e tente novamente.");
       return;
     }
 
@@ -921,7 +1016,7 @@ export default function Home() {
 
       {carrinho.length === 0 ? (
         <div className="mt-3 rounded-2xl bg-[#fff8ea] p-3 text-xs font-semibold leading-5 text-[#8b7866] sm:mt-5 sm:rounded-3xl sm:p-5 sm:text-sm sm:leading-6">
-          Seu carrinho esta vazio. Toque em um item do cardapio para escolher opcao, borda e quantidade.
+          Seu carrinho está vazio. Toque em um item do cardápio para escolher opção, borda e quantidade.
         </div>
       ) : (
         <div className="mt-3 space-y-2 sm:mt-5 sm:space-y-3">
@@ -1037,7 +1132,7 @@ export default function Home() {
             <input
               value={endereco}
               onChange={(event) => setEndereco(event.target.value)}
-              placeholder="Endereco completo"
+              placeholder="Endereço completo"
               className="h-10 w-full rounded-2xl border border-[#eadfcc] bg-[#fffaf2] px-4 text-sm font-semibold outline-none focus:border-[#f2552c] sm:h-auto sm:py-3"
             />
 
@@ -1051,7 +1146,7 @@ export default function Home() {
             <input
               value={referencia}
               onChange={(event) => setReferencia(event.target.value)}
-              placeholder="Ponto de referencia"
+              placeholder="Ponto de referência"
               className="h-10 w-full rounded-2xl border border-[#eadfcc] bg-[#fffaf2] px-4 text-sm font-semibold outline-none focus:border-[#f2552c] sm:h-auto sm:py-3"
             />
           </>
@@ -1078,16 +1173,27 @@ export default function Home() {
           />
         )}
 
+        <p className="rounded-2xl bg-[#fff8ea] px-3 py-2 text-[11px] font-semibold leading-5 text-[#8b7866]">
+          Ao confirmar o pedido, você autoriza a Casa Di Lari a usar seus dados
+          para preparar o pedido, entrar em contato pelo WhatsApp e combinar
+          entrega ou retirada.{" "}
+          <a href="/privacidade" className="font-black text-[#d14f2a] underline">
+            Ver política de privacidade
+          </a>
+          .
+        </p>
+
         <button
           type="button"
           onClick={enviarWhatsApp}
-          className={`w-full rounded-2xl px-4 py-3 text-sm font-black text-white shadow-lg transition active:scale-95 sm:py-4 ${
+          disabled={enviandoPedido}
+          className={`w-full rounded-2xl px-4 py-3 text-sm font-black text-white shadow-lg transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-70 sm:py-4 ${
             pizzaria.status_aberto
               ? "bg-[#22a45d] shadow-[#22a45d]/20"
               : "bg-[#f2552c] shadow-[#f2552c]/20"
           }`}
         >
-          Enviar pedido
+          {enviandoPedido ? "Enviando..." : "Enviar pedido"}
         </button>
       </div>
     </>
@@ -1108,35 +1214,12 @@ export default function Home() {
               </button>
 
               <div className="text-center">
-                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#8b3b21] sm:text-xs sm:tracking-[0.22em]">
+                <p className="text-sm font-black uppercase leading-none tracking-[0.14em] text-[#8b3b21] sm:text-base sm:tracking-[0.18em]">
                   {pizzaria?.nome ?? "CasaDiLari"}
                 </p>
               </div>
 
-              <button
-                type="button"
-                aria-label="Abrir carrinho"
-                onClick={() => setCarrinhoAberto(true)}
-                className="relative grid h-11 w-11 place-items-center rounded-full bg-[#1d1009] text-white shadow-sm lg:pointer-events-none lg:invisible"
-              >
-                <svg
-                  aria-hidden="true"
-                  viewBox="0 0 24 24"
-                  className="h-5 w-5"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <circle cx="9" cy="20" r="1.5" />
-                  <circle cx="18" cy="20" r="1.5" />
-                  <path d="M3 4h2l2.4 11.2a2 2 0 0 0 2 1.6h7.9a2 2 0 0 0 1.9-1.4L21 8H6" />
-                </svg>
-                <span className="absolute -right-1 -top-1 grid h-5 min-w-5 place-items-center rounded-full bg-[#f2552c] px-1 text-[10px] font-black">
-                  {totalItens}
-                </span>
-              </button>
+              <div className="h-11 w-11" />
             </div>
 
             <div className="mt-4 grid grid-cols-[minmax(0,1fr)_176px] items-center gap-3 sm:mt-8 sm:grid-cols-[1fr_240px] sm:gap-5">
@@ -1145,14 +1228,14 @@ export default function Home() {
                   {pizzaria?.status_aberto ? "Estamos abertos" : "Estamos fechados"}
                 </p>
                 <div className="mt-1 space-y-1 text-[11px] font-bold leading-4 text-[#8b3b21] sm:hidden">
-                  {!pizzaria.status_aberto && <p>Abre as {horarioAberturaTexto}</p>}
+                  {!pizzaria.status_aberto && <p>Abre às {horarioAberturaTexto}</p>}
                   {pizzaria.endereco && <p>{pizzaria.endereco}</p>}
                 </div>
                 <h2 className="mt-1 max-w-sm font-serif text-2xl font-black leading-[1] sm:mt-2 sm:text-5xl sm:leading-[0.95]">
-                  {pizzaria?.mensagem_aviso ?? "Escolha seus sabores e faca seu pedido."}
+                  {pizzaria?.mensagem_aviso ?? "Escolha seus sabores e faça seu pedido."}
                 </h2>
                 <div className="mt-3 hidden space-y-1 text-xs font-bold leading-5 text-[#8b3b21] sm:block">
-                  {!pizzaria.status_aberto && <p>Abre as {horarioAberturaTexto}</p>}
+                  {!pizzaria.status_aberto && <p>Abre às {horarioAberturaTexto}</p>}
                   {pizzaria.endereco && <p>{pizzaria.endereco}</p>}
                 </div>
                 {pizzaria.tempo_entrega_texto && (
@@ -1184,7 +1267,7 @@ export default function Home() {
           <div className="px-4 py-5 sm:px-8 sm:py-6">
             {carregando && (
               <div className="rounded-[28px] bg-white p-5 text-sm font-bold text-[#8b7866] shadow-sm">
-                Carregando cardapio...
+                Carregando cardápio...
               </div>
             )}
 
@@ -1228,7 +1311,7 @@ export default function Home() {
                 <div className="mt-5 flex items-end justify-between gap-4 sm:mt-7">
                   <div>
                     <p className="text-[11px] font-black uppercase tracking-[0.18em] text-[#d14f2a] sm:text-xs sm:tracking-[0.2em]">
-                      Cardapio
+                      Cardápio
                     </p>
                     <h2 className="mt-1 font-serif text-2xl font-black sm:text-3xl">Escolha seu pedido</h2>
                   </div>
@@ -1294,11 +1377,30 @@ export default function Home() {
             )}
           </div>
           <footer className="px-4 pb-5 sm:px-8">
-            <div className="rounded-[28px] border border-[#eadfcc] bg-white p-4 text-sm font-bold text-[#6d5a4a] shadow-sm sm:flex sm:items-center sm:justify-between sm:gap-4 sm:p-5">
-              <span>Problemas com o pedido?</span>
-              <span className="mt-1 block font-black text-[#1d1009] sm:mt-0">
-                Fale com a loja: {pizzaria?.whatsapp || "(21) 9XXXX-XXXX"}
-              </span>
+            <div className="flex items-center justify-between gap-3 rounded-[28px] border border-[#eadfcc] bg-white p-4 text-sm font-bold text-[#6d5a4a] shadow-sm sm:gap-4 sm:p-5">
+              <span className="min-w-0">Problemas com seu pedido?</span>
+              {suporteWhatsappUrl ? (
+                <a
+                  href={suporteWhatsappUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="shrink-0 rounded-2xl bg-[#22a45d] px-3 py-2 text-[10px] font-black text-white shadow-sm sm:px-4 sm:text-xs"
+                >
+                  Chamar no WhatsApp
+                </a>
+              ) : (
+                <span className="shrink-0 font-black text-[#1d1009]">
+                  Fale com a loja: (21) 9XXXX-XXXX
+                </span>
+              )}
+            </div>
+            <div className="mt-3 text-center">
+              <a
+                href="/privacidade"
+                className="text-[11px] font-black uppercase tracking-[0.14em] text-[#8b7866] underline"
+              >
+                Política de privacidade
+              </a>
             </div>
           </footer>
         </section>
@@ -1307,6 +1409,33 @@ export default function Home() {
           {carrinhoPainel}
         </aside>
       </div>
+
+      {!carrinhoAberto && (
+        <button
+          type="button"
+          aria-label="Abrir carrinho"
+          onClick={() => setCarrinhoAberto(true)}
+          className="fixed bottom-4 right-4 z-40 grid h-14 w-14 place-items-center rounded-full bg-[#1d1009] text-white shadow-2xl shadow-[#1d1009]/30 transition active:scale-95 lg:hidden"
+        >
+          <svg
+            aria-hidden="true"
+            viewBox="0 0 24 24"
+            className="h-6 w-6"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <circle cx="9" cy="20" r="1.5" />
+            <circle cx="18" cy="20" r="1.5" />
+            <path d="M3 4h2l2.4 11.2a2 2 0 0 0 2 1.6h7.9a2 2 0 0 0 1.9-1.4L21 8H6" />
+          </svg>
+          <span className="absolute -right-1 -top-1 grid h-5 min-w-5 place-items-center rounded-full bg-[#f2552c] px-1 text-[10px] font-black">
+            {totalItens}
+          </span>
+        </button>
+      )}
 
       {carrinhoAberto && (
         <div className="fixed inset-0 z-50 flex items-end bg-[#1d1009]/55 p-0 backdrop-blur-sm lg:hidden">
@@ -1341,12 +1470,12 @@ export default function Home() {
               Quer agendar?
             </h2>
             <p className="mt-2 text-sm font-semibold leading-6 text-[#8b7866]">
-              Estamos fechados no momento. Nossa proxima data e {dataProximaEncomendaTexto}.
+              Estamos fechados no momento. Nossa próxima data é {dataProximaEncomendaTexto}.
             </p>
 
             <label className="mt-5 block">
               <span className="mb-2 block text-sm font-black text-[#1d1009]">
-                Escolha o horario
+                Escolha o horário
               </span>
               <select
                 value={horaEncomenda || horariosDisponiveisEncomenda[0] || ""}
@@ -1372,9 +1501,10 @@ export default function Home() {
               <button
                 type="button"
                 onClick={confirmarEncomenda}
-                className="rounded-2xl bg-[#f2552c] px-4 py-3 text-sm font-black text-white"
+                disabled={enviandoPedido}
+                className="rounded-2xl bg-[#f2552c] px-4 py-3 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-70"
               >
-                Reservar
+                {enviandoPedido ? "Reservando..." : "Reservar"}
               </button>
             </div>
           </div>
@@ -1490,7 +1620,7 @@ export default function Home() {
                   {textoStatusCliente(pedidoConsultado.status)}
                 </h3>
                 <p className="mt-2 text-sm font-semibold text-[#8b7866]">
-                  Status: {pedidoConsultado.status}
+                  Status: {rotuloStatusCliente(pedidoConsultado.status)}
                 </p>
               </div>
             )}
@@ -1557,7 +1687,7 @@ export default function Home() {
               {!produtoSelecionadoEhCombo && (!produtoSelecionadoEhPizza || produtoSelecionado.opcoes.length > 1) && (
                 <div className="mt-4 sm:mt-6">
                   <p className="mb-2 text-sm font-black sm:mb-3">
-                    {produtoSelecionadoEhPizza ? "Tamanho" : "Opcao"}
+                    {produtoSelecionadoEhPizza ? "Tamanho" : "Opção"}
                   </p>
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                     {produtoSelecionado.opcoes.map((opcao) => (
@@ -1585,7 +1715,7 @@ export default function Home() {
                     <div>
                       <p className="text-sm font-black">Sabores</p>
                       <p className="mt-1 text-xs font-semibold text-[#8b7866]">
-                        Escolha ate {limiteSabores} {limiteSabores === 1 ? "sabor" : "sabores"}.
+                        Escolha até {limiteSabores} {limiteSabores === 1 ? "sabor" : "sabores"}.
                       </p>
                     </div>
                     <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-[#8b3b21]">
@@ -1697,7 +1827,7 @@ export default function Home() {
                 </div>
 
                 <label>
-                  <span className="mb-2 block text-sm font-black sm:mb-3">Observacao</span>
+                  <span className="mb-2 block text-sm font-black sm:mb-3">Observação</span>
                   <input
                     value={observacao}
                     onChange={(event) => setObservacao(event.target.value)}

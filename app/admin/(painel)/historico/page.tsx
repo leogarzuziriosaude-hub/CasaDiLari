@@ -99,14 +99,14 @@ export default function HistoricoPage() {
   }, [pedidos]);
 
   if (carregando) {
-    return <p className="text-sm text-zinc-400">Carregando historico...</p>;
+    return <p className="text-sm text-zinc-400">Carregando histórico...</p>;
   }
 
   return (
     <div className="space-y-6">
       <section className="rounded-[32px] border border-[#f0d6bf] bg-[#fff7ed] p-6 text-[#1f120d] shadow-[0_18px_45px_rgba(31,18,13,0.08)]">
         <p className="text-sm font-black uppercase tracking-[0.22em] text-[#9d4d20]">
-          Historico
+          Histórico
         </p>
         <h1 className="mt-3 text-3xl font-black">Pedidos arquivados</h1>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-[#7a5942]">
@@ -139,7 +139,7 @@ export default function HistoricoPage() {
       <section className="space-y-3">
         {pedidos.length === 0 && (
           <div className="rounded-[28px] border border-white/10 bg-white/[0.04] p-5 text-sm font-bold text-zinc-300">
-            Nenhum pedido no historico ainda.
+            Nenhum pedido no histórico ainda.
           </div>
         )}
 
@@ -162,7 +162,7 @@ export default function HistoricoPage() {
                 </p>
                 {pedido.tipoPedido === "Encomenda" && (
                   <p className="mt-3 inline-flex rounded-full bg-[#ff7a3d] px-3 py-2 text-xs font-black uppercase tracking-[0.12em] text-white">
-                    Encomenda para {dataEncomenda(pedido.dataEncomenda)} as {pedido.horaEncomenda}
+                    Encomenda para {dataEncomenda(pedido.dataEncomenda)} às {pedido.horaEncomenda}
                   </p>
                 )}
               </div>

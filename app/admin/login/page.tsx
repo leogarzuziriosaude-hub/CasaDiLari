@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
@@ -11,6 +11,24 @@ export default function AdminLoginPage() {
   const [senha, setSenha] = useState("");
   const [erro, setErro] = useState("");
   const [carregando, setCarregando] = useState(false);
+
+  useEffect(() => {
+    let ativo = true;
+
+    async function redirecionarSeLogado() {
+      const { data } = await supabase.auth.getSession();
+
+      if (ativo && data.session) {
+        router.replace("/admin/home");
+      }
+    }
+
+    void redirecionarSeLogado();
+
+    return () => {
+      ativo = false;
+    };
+  }, [router]);
 
   async function entrar() {
     setErro("");
@@ -28,7 +46,7 @@ export default function AdminLoginPage() {
       return;
     }
 
-    router.push("/admin/home");
+    router.replace("/admin/home");
   }
 
   return (
@@ -36,7 +54,7 @@ export default function AdminLoginPage() {
       <div className="w-full max-w-sm rounded-[32px] border border-white/10 bg-white/[0.04] p-6 shadow-2xl shadow-black/20 backdrop-blur">
         <div className="rounded-[28px] border border-white/10 bg-gradient-to-br from-[#ffb74d] via-[#ff7a3d] to-[#b8362b] p-5 text-[#210f0b] shadow-2xl shadow-black/20">
           <p className="text-[11px] font-black uppercase tracking-[0.3em] text-[#3a170d]">
-            Pizza SaaS
+            Casa Di Lari
           </p>
           <h1 className="mt-2 text-2xl font-black leading-tight">
             Acesso do dono

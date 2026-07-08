@@ -148,7 +148,7 @@ function arquivoParaDataUrl(arquivo: File) {
     const leitor = new FileReader();
 
     leitor.onload = () => resolve(String(leitor.result ?? ""));
-    leitor.onerror = () => reject(new Error("Nao foi possivel ler a foto."));
+    leitor.onerror = () => reject(new Error("Não foi possível ler a foto."));
     leitor.readAsDataURL(arquivo);
   });
 }
@@ -521,7 +521,7 @@ export default function ProdutosPage() {
     );
 
     if (jaExiste) {
-      mostrarErro("Ja existe uma categoria com esse nome.");
+      mostrarErro("Já existe uma categoria com esse nome.");
       return;
     }
 
@@ -693,7 +693,7 @@ export default function ProdutosPage() {
     }
 
     if (!nome.trim() || opcoesValidas.length === 0) {
-      mostrarErro("Informe o nome do produto e pelo menos uma opcao com preco.");
+      mostrarErro("Informe o nome do produto e pelo menos uma opção com preço.");
       return;
     }
 
@@ -703,7 +703,7 @@ export default function ProdutosPage() {
     }
 
     if (ehCombo && comboPrecoCalculado <= 0) {
-      mostrarErro("Selecione produtos com preco para montar o combo.");
+      mostrarErro("Selecione produtos com preço para montar o combo.");
       return;
     }
 
@@ -716,7 +716,7 @@ export default function ProdutosPage() {
       try {
         imagemUrl = await arquivoParaDataUrl(fotoArquivo);
       } catch {
-        mostrarErro("Nao foi possivel carregar a foto.");
+        mostrarErro("Não foi possível carregar a foto.");
         setSalvando(false);
         return;
       }
@@ -784,7 +784,7 @@ export default function ProdutosPage() {
     const precoFinal = precoNumero(precoBorda || "0");
 
     if (!Number.isFinite(precoFinal) || precoFinal < 0) {
-      mostrarErro("Informe um preco valido para a borda.");
+      mostrarErro("Informe um preço válido para a borda.");
       return;
     }
 
@@ -838,8 +838,8 @@ export default function ProdutosPage() {
         <div className="hidden grid-cols-[1.3fr_0.8fr_0.8fr_170px] gap-4 border-b border-[#f0d6bf] px-5 py-3 text-xs font-black uppercase tracking-[0.16em] text-[#9b7a61] md:grid">
           <span>Produto</span>
           <span>Categoria</span>
-          <span className="text-right">Preco inicial</span>
-          <span className="text-right">Acoes</span>
+          <span className="text-right">Preço inicial</span>
+          <span className="text-right">Ações</span>
         </div>
 
         {listaProdutos.map((produto) => (
@@ -850,7 +850,7 @@ export default function ProdutosPage() {
             <div>
               <h3 className="text-base font-black text-[#1f120d]">{produto.nome}</h3>
               <p className="mt-1 line-clamp-2 text-sm leading-6 text-[#7a5942]">
-                {produto.descricao ?? "Sem descricao cadastrada"}
+                {produto.descricao ?? "Sem descrição cadastrada"}
               </p>
             </div>
 
@@ -866,11 +866,11 @@ export default function ProdutosPage() {
 
               <div className="col-span-2 md:col-span-1">
                 <p className="text-xs font-black uppercase tracking-[0.14em] text-[#9b7a61] md:hidden">
-                  Preco inicial
+                  Preço inicial
                 </p>
                 <p className="mt-1 text-left text-lg font-black text-[#1f120d] md:mt-0 md:text-right">
                   {produto.precoInicial === null
-                    ? "Sem preco"
+                    ? "Sem preço"
                     : dinheiro(produto.precoInicial)}
                 </p>
               </div>
@@ -918,10 +918,10 @@ export default function ProdutosPage() {
               Produtos
             </p>
 
-            <h1 className="mt-3 text-3xl font-black text-[#1f120d]">Cardapio</h1>
+            <h1 className="mt-3 text-3xl font-black text-[#1f120d]">Cardápio</h1>
 
             <p className="mt-2 max-w-2xl text-sm leading-6 text-[#7a5942]">
-              Cadastre pizzas, bebidas, sobremesas, combos e adicionais da operacao.
+              Cadastre pizzas, bebidas, sobremesas, combos e adicionais da operação.
             </p>
           </div>
 
@@ -995,8 +995,8 @@ export default function ProdutosPage() {
             <section className="overflow-hidden rounded-[28px] border border-[#f0d6bf] bg-[#fff7ed] shadow-[0_18px_45px_rgba(31,18,13,0.08)]">
               <div className="hidden grid-cols-[1fr_0.8fr_170px] gap-4 border-b border-[#f0d6bf] px-5 py-3 text-xs font-black uppercase tracking-[0.16em] text-[#9b7a61] md:grid">
                 <span>Borda</span>
-                <span className="text-right">Preco</span>
-                <span className="text-right">Acoes</span>
+                <span className="text-right">Preço</span>
+                <span className="text-right">Ações</span>
               </div>
 
               {bordas.map((borda) => (
@@ -1015,7 +1015,7 @@ export default function ProdutosPage() {
 
                   <div>
                     <p className="text-xs font-black uppercase tracking-[0.14em] text-[#9b7a61] md:hidden">
-                      Preco
+                      Preço
                     </p>
                     <p className="mt-1 text-left text-lg font-black text-[#1f120d] md:mt-0 md:text-right">
                       {dinheiro(borda.preco)}
@@ -1079,8 +1079,8 @@ export default function ProdutosPage() {
 
                 <h2 className="mt-2 text-2xl font-black text-white">
                   {produtoEditando
-                    ? "Editar item do cardapio"
-                    : "Adicionar ao cardapio"}
+                    ? "Editar item do cardápio"
+                    : "Adicionar ao cardápio"}
                 </h2>
               </div>
 
@@ -1140,7 +1140,7 @@ export default function ProdutosPage() {
                 <>
                   <label>
                     <span className="mb-2 block text-sm font-black text-zinc-200">
-                      Descricao
+                      Descrição
                     </span>
                     <input
                       value={descricao}
@@ -1195,7 +1195,7 @@ export default function ProdutosPage() {
 
                         <span className="hidden text-xs font-bold leading-5 text-zinc-500 sm:block">
                           Use uma imagem quadrada ou horizontal. No celular, este
-                          botao abre a galeria.
+                          botão abre a galeria.
                         </span>
                       </div>
                     </div>
@@ -1265,7 +1265,7 @@ export default function ProdutosPage() {
                                         {produto.nome}
                                       </span>
                                       <span className="mt-1 block text-xs font-bold text-zinc-500">
-                                        A partir de {produto.precoInicial === null ? "sem preco" : dinheiro(produto.precoInicial)}
+                                        A partir de {produto.precoInicial === null ? "sem preço" : dinheiro(produto.precoInicial)}
                                       </span>
                                     </span>
 
@@ -1375,7 +1375,7 @@ export default function ProdutosPage() {
                   </label>
 
                   <p className="rounded-2xl bg-white/[0.04] px-4 py-3 text-sm font-black text-white sm:col-span-2">
-                    Preco do combo: {dinheiro(comboPrecoCalculado)}
+                    Preço do combo: {dinheiro(comboPrecoCalculado)}
                   </p>
                 </div>
               </div>
@@ -1386,10 +1386,10 @@ export default function ProdutosPage() {
               <div className="flex items-center justify-between gap-3">
                 <h3 className="text-sm font-black text-zinc-200">
                   {categoriaSelecionadaEhAdicional
-                    ? "Preco do adicional"
+                    ? "Preço do adicional"
                     : categoriaSelecionadaEhCombo
-                      ? "Preco do combo"
-                      : "Tamanhos, variacoes e precos"}
+                      ? "Preço do combo"
+                      : "Tamanhos, variações e preços"}
                 </h3>
 
                 {!categoriaSelecionadaEhCombo && !categoriaSelecionadaEhAdicional && (
@@ -1398,7 +1398,7 @@ export default function ProdutosPage() {
                     onClick={adicionarOpcao}
                     className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-black text-zinc-200"
                   >
-                    + Opcao
+                    + Opção
                   </button>
                 )}
               </div>
@@ -1417,7 +1417,7 @@ export default function ProdutosPage() {
                         onChange={(event) =>
                           alterarOpcao(index, "nome", event.target.value)
                         }
-                        placeholder="Especificacoes"
+                        placeholder="Especificações"
                         required
                         className="h-12 rounded-2xl border border-white/10 bg-[#0f0c0b] px-4 text-sm font-bold text-white outline-none focus:border-[#ff7a3d]"
                       />
@@ -1503,7 +1503,7 @@ export default function ProdutosPage() {
 
               <label>
                 <span className="mb-2 block text-sm font-black text-zinc-200">
-                  Preco
+                  Preço
                 </span>
                 <input
                   value={precoBorda}
@@ -1591,10 +1591,10 @@ export default function ProdutosPage() {
                   Organizar ordem
                 </h2>
                 <p className="mt-2 text-sm font-bold leading-6 text-zinc-400">
-                  A ordem daqui e a mesma ordem dos filtros no cardapio do cliente.
+                  A ordem daqui é a mesma ordem dos filtros no cardápio do cliente.
                 </p>
                 <p className="mt-1 text-xs font-bold text-zinc-500">
-                  Arraste pela alca ou use as setas.
+                  Arraste pela alça ou use as setas.
                 </p>
               </div>
 
@@ -1641,7 +1641,7 @@ export default function ProdutosPage() {
                         {categoria.nome}
                       </h3>
                       <p className="mt-1 text-xs font-bold text-zinc-500">
-                        Posicao {index + 1}
+                        Posição {index + 1}
                       </p>
                     </div>
 
@@ -1685,7 +1685,7 @@ export default function ProdutosPage() {
         titulo="Excluir produto?"
         descricao={`O produto "${
           produtoParaExcluir?.nome ?? ""
-        }" saira do cardapio, mas o historico permanece preservado.`}
+        }" sairá do cardápio, mas o histórico permanece preservado.`}
         confirmando={excluindo}
         onCancelar={() => setProdutoParaExcluir(null)}
         onConfirmar={confirmarExclusaoProduto}
@@ -1696,7 +1696,7 @@ export default function ProdutosPage() {
         titulo="Excluir borda?"
         descricao={`A borda "${
           bordaParaExcluir?.nome ?? ""
-        }" deixara de aparecer para novas pizzas.`}
+        }" deixará de aparecer para novas pizzas.`}
         confirmando={excluindoBorda}
         onCancelar={() => setBordaParaExcluir(null)}
         onConfirmar={confirmarExclusaoBorda}
@@ -1704,7 +1704,7 @@ export default function ProdutosPage() {
 
       <FeedbackDialog
         aberto={Boolean(erroModal)}
-        titulo="Nao foi possivel salvar"
+        titulo="Não foi possível salvar"
         descricao={erroModal}
         onFechar={() => setErroModal("")}
       />

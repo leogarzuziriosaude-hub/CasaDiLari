@@ -11,7 +11,7 @@ function arquivoParaDataUrl(arquivo: File) {
   return new Promise<string>((resolve, reject) => {
     const leitor = new FileReader();
     leitor.onload = () => resolve(String(leitor.result));
-    leitor.onerror = () => reject(new Error("Nao foi possivel ler a foto."));
+    leitor.onerror = () => reject(new Error("Não foi possível ler a foto."));
     leitor.readAsDataURL(arquivo);
   });
 }
@@ -101,14 +101,14 @@ export default function ConfiguracoesPage() {
     if (!arquivo) return;
 
     if (!arquivo.type.startsWith("image/")) {
-      setFeedback("Selecione uma imagem valida.");
+      setFeedback("Selecione uma imagem válida.");
       return;
     }
 
     try {
       setFotoLoja(await arquivoParaDataUrl(arquivo));
     } catch {
-      setFeedback("Nao foi possivel carregar a foto.");
+      setFeedback("Não foi possível carregar a foto.");
     }
   }
 
@@ -127,18 +127,18 @@ export default function ConfiguracoesPage() {
   }
 
   if (carregando) {
-    return <p className="text-sm text-zinc-400">Carregando configuracoes...</p>;
+    return <p className="text-sm text-zinc-400">Carregando configurações...</p>;
   }
 
   return (
     <div className="space-y-6">
       <section className="rounded-[32px] border border-[#f0d6bf] bg-[#fff7ed] p-6 text-[#1f120d] shadow-[0_18px_45px_rgba(31,18,13,0.08)]">
         <p className="text-sm font-black uppercase tracking-[0.22em] text-[#9d4d20]">
-          Configuracoes
+          Configurações
         </p>
         <h1 className="mt-3 text-3xl font-black">Loja</h1>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-[#7a5942]">
-          Ajuste as informacoes que aparecem no cardapio do cliente.
+          Ajuste as informações que aparecem no cardápio do cliente.
         </p>
       </section>
 
@@ -160,7 +160,7 @@ export default function ConfiguracoesPage() {
           onClick={() => setSucessoVisivel(false)}
           className="fixed right-4 top-4 z-50 rounded-2xl border border-[#22a45d]/30 bg-[#e9f8ef] px-5 py-3 text-sm font-black text-[#176f40] shadow-2xl shadow-black/20"
         >
-          Configuracoes salvas com sucesso
+          Configurações salvas com sucesso
         </button>
       )}
 
@@ -171,7 +171,7 @@ export default function ConfiguracoesPage() {
               <div>
                 <h2 className="text-lg font-black text-white">Loja aberta</h2>
                 <p className="mt-1 text-sm font-bold text-zinc-400">
-                  Quando estiver fechada, o cliente nao consegue finalizar pedido.
+                  Quando estiver fechada, o cliente não consegue finalizar pedido.
                 </p>
               </div>
 
@@ -229,7 +229,7 @@ export default function ConfiguracoesPage() {
 
               <label>
                 <span className="mb-2 block text-sm font-black text-zinc-200">
-                  Endereco
+                  Endereço
                 </span>
                 <input
                   value={enderecoLoja}
@@ -250,14 +250,14 @@ export default function ConfiguracoesPage() {
                   className="h-12 w-full rounded-2xl border border-white/10 bg-[#0f0c0b] px-4 text-sm font-bold text-white outline-none focus:border-[#ff7a3d]"
                 />
                 <span className="mt-2 block text-xs font-bold text-zinc-500">
-                  Se deixar vazio, essa informacao nao aparece para o cliente.
+                  Se deixar vazio, essa informação não aparece para o cliente.
                 </span>
               </label>
 
               <div className="rounded-3xl border border-white/10 bg-[#0f0c0b] p-4">
-                <h2 className="text-lg font-black text-white">Horario de encomenda</h2>
+                <h2 className="text-lg font-black text-white">Horário de encomenda</h2>
                 <p className="mt-1 text-sm font-bold leading-6 text-zinc-400">
-                  Quando a loja estiver fechada, o cliente so pode reservar dentro desse horario.
+                  Quando a loja estiver fechada, o cliente só pode reservar dentro desse horário.
                 </p>
 
                 <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -338,7 +338,7 @@ export default function ConfiguracoesPage() {
               {salvando && (
                 <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
               )}
-              {salvando ? "Salvando..." : "Salvar configuracoes"}
+              {salvando ? "Salvando..." : "Salvar configurações"}
             </button>
           </div>
         </form>
