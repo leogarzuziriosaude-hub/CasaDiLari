@@ -763,6 +763,35 @@ $$;
 
 grant execute on function public.criar_pedido_publico(jsonb) to anon, authenticated;
 
+-- 9.1) Permissoes SQL para os roles da API.
+-- RLS decide o que cada role pode fazer; estes grants apenas permitem que
+-- PostgREST chegue nas tabelas/funcoes.
+grant usage on schema public to anon, authenticated;
+
+grant select on public.configuracoes to anon, authenticated;
+grant select on public.categorias to anon, authenticated;
+grant select on public.produtos to anon, authenticated;
+grant select on public.produto_opcoes to anon, authenticated;
+grant select on public.bordas to anon, authenticated;
+grant select on public.combo_config to anon, authenticated;
+grant select on public.combo_itens to anon, authenticated;
+
+grant select on public.app_admins to authenticated;
+
+grant all on public.configuracoes to authenticated;
+grant all on public.categorias to authenticated;
+grant all on public.produtos to authenticated;
+grant all on public.produto_opcoes to authenticated;
+grant all on public.bordas to authenticated;
+grant all on public.combo_config to authenticated;
+grant all on public.combo_itens to authenticated;
+grant all on public.pedidos to authenticated;
+grant all on public.pedido_itens to authenticated;
+grant all on public.pedido_item_sabores to authenticated;
+grant all on public.pedido_item_adicionais to authenticated;
+
+grant usage, select on all sequences in schema public to authenticated;
+
 -- 10) Seed inicial da loja.
 insert into public.configuracoes (
   id,
