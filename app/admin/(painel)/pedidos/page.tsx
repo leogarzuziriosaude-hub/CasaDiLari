@@ -171,13 +171,14 @@ function mensagemStatus(pedido: PedidoLocal, status: PedidoStatus) {
 function abrirWhatsAppCliente(pedido: PedidoLocal, status: PedidoStatus) {
   const telefone = normalizarTelefone(pedido.telefone);
   const mensagem = encodeURIComponent(mensagemStatus(pedido, status));
+  const url = telefone
+    ? `https://wa.me/${telefone}?text=${mensagem}`
+    : `https://wa.me/?text=${mensagem}`;
+  const novaJanela = window.open(url, "_blank", "noopener,noreferrer");
 
-  if (!telefone) {
-    window.location.href = `https://wa.me/?text=${mensagem}`;
-    return;
+  if (!novaJanela) {
+    window.location.href = url;
   }
-
-  window.location.href = `https://wa.me/${telefone}?text=${mensagem}`;
 }
 
 export default function PedidosPage() {

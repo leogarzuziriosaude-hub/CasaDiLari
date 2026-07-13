@@ -90,6 +90,6 @@ select {
   .cliente-compacto input,
   .cliente-compacto select,
   .cliente-compacto textarea {
-    font-size: 16px;
+    font-size: 16px !important;
   }
 }

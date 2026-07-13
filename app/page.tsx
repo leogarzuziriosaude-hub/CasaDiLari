@@ -2007,8 +2007,8 @@ export default function Home() {
                   <input
                     value={observacao}
                     onChange={(event) => setObservacao(event.target.value)}
-                    placeholder="Ex: sem cebola"
-                    className="h-10 w-full rounded-full border border-[#eadfcc] bg-white px-4 text-sm font-semibold outline-none focus:border-[#f2552c] sm:h-12"
+                    placeholder="Alguma observação?"
+                    className="h-10 w-full rounded-full border border-[#eadfcc] bg-white px-4 text-base font-semibold outline-none focus:border-[#f2552c] sm:h-12 sm:text-sm"
                   />
                 </label>
               </div>
