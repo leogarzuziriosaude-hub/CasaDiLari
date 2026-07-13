@@ -397,6 +397,36 @@ function limparTelefone(valor: string) {
   return valor.replace(/\D/g, "");
 }
 
+const prefixoWhatsappCliente = "5521";
+
+function whatsappClienteParaCampo(valor: string) {
+  const numeros = limparTelefone(valor);
+
+  if (numeros.startsWith(prefixoWhatsappCliente)) {
+    return numeros.slice(prefixoWhatsappCliente.length).slice(0, 9);
+  }
+
+  if (numeros.startsWith("21")) {
+    return numeros.slice(2).slice(0, 9);
+  }
+
+  if (numeros.startsWith("55")) {
+    return numeros.slice(2).slice(0, 11);
+  }
+
+  return numeros.slice(0, 9);
+}
+
+function whatsappClienteCompleto(valor: string) {
+  const numeros = limparTelefone(valor);
+
+  if (!numeros) return "";
+  if (numeros.startsWith("55")) return numeros;
+  if (numeros.startsWith("21")) return `55${numeros}`;
+
+  return `${prefixoWhatsappCliente}${numeros}`;
+}
+
 function telefoneValido(valor: string) {
   const telefone = limparTelefone(valor);
   const semCodigoBrasil = telefone.startsWith("55") ? telefone.slice(2) : telefone;
@@ -828,7 +858,8 @@ export default function Home() {
 
   function montarMensagemWhatsApp(
     configAtual: Pizzaria,
-    agendamento?: { dataTexto: string; hora: string }
+    agendamento?: { dataTexto: string; hora: string },
+    protocolo?: string
   ) {
     const itens = carrinho
       .map((item, index) => {
@@ -874,10 +905,13 @@ export default function Home() {
         : `Pagamento: ${formaPagamento}`;
 
     return [
-      `*NOVO PEDIDO - ${configAtual.nome ?? "CasaDiLari"}*`,
+      `Oi, meu nome é ${nomeCliente.trim()}, segue meu pedido${protocolo ? ` ${protocolo}` : ""}.`,
+      "",
+      `*${configAtual.nome ?? "Casa Di Lari"}*`,
       "",
       `Cliente: ${nomeCliente}`,
-      telefoneCliente ? `Telefone: ${telefoneCliente}` : null,
+      telefoneCliente ? `WhatsApp: +55 21 ${telefoneCliente}` : null,
+      protocolo ? `Protocolo: ${protocolo}` : null,
       agendamento ? `Encomenda: ${agendamento.dataTexto} às ${agendamento.hora}` : null,
       "",
       "*Itens do pedido:*",
@@ -904,8 +938,8 @@ export default function Home() {
       return false;
     }
 
-    if (!telefoneValido(telefoneCliente)) {
-      alert("Informe um WhatsApp válido com DDD. Ex: (21) 9XXXX-XXXX.");
+    if (!telefoneValido(whatsappClienteCompleto(telefoneCliente))) {
+      alert("Informe um WhatsApp válido. Preencha apenas o número depois de +55 21.");
       return false;
     }
 
@@ -932,7 +966,8 @@ export default function Home() {
       configAtual = pizzaria;
     }
 
-    const antiSpam = validarAntiSpamPedido(telefoneCliente);
+    const telefoneCompleto = whatsappClienteCompleto(telefoneCliente);
+    const antiSpam = validarAntiSpamPedido(telefoneCompleto);
     if (!antiSpam.permitido) {
       envioEmAndamentoRef.current = false;
       setEnviandoPedido(false);
@@ -946,12 +981,12 @@ export default function Home() {
           hora: agendamento.hora,
         }
       : undefined;
-    const mensagem = montarMensagemWhatsApp(configAtual, agendamentoMensagem);
+    const mensagemRascunho = montarMensagemWhatsApp(configAtual, agendamentoMensagem);
 
     try {
       const pedidoCriado = await criarPedidoPublico({
         cliente_nome: nomeCliente.trim(),
-        cliente_whatsapp: telefoneCliente.trim(),
+        cliente_whatsapp: telefoneCompleto,
         tipo_pedido: agendamento ? "encomenda" : "agora",
         data_encomenda: agendamento ? dataIsoLocal(agendamento.data) : null,
         hora_encomenda: agendamento?.hora ?? null,
@@ -962,7 +997,7 @@ export default function Home() {
         forma_pagamento: formaPagamento,
         troco: troco.trim(),
         total_informado_cliente: total,
-        mensagem_whatsapp: mensagem,
+        mensagem_whatsapp: mensagemRascunho,
         user_agent: navigator.userAgent,
         itens: carrinho.map((item) => ({
           produto_id: item.produtoId,
@@ -985,12 +1020,18 @@ export default function Home() {
         })),
       });
 
+      const mensagem = montarMensagemWhatsApp(
+        configAtual,
+        agendamentoMensagem,
+        pedidoCriado.protocolo
+      );
+
       const pedido: PedidoLocal = {
       id: pedidoCriado.id,
       numero: Number(pedidoCriado.numero),
       protocolo: pedidoCriado.protocolo,
       cliente: nomeCliente.trim(),
-      telefone: telefoneCliente.trim(),
+      telefone: telefoneCompleto,
       status: "Recebido",
       criadoEm: new Date().toISOString(),
       tipoPedido: agendamento ? "Encomenda" : "Agora",
@@ -1007,7 +1048,7 @@ export default function Home() {
       mensagem,
     };
 
-    registrarEnvioPedido(telefoneCliente);
+    registrarEnvioPedido(telefoneCompleto);
 
     setCarrinho([]);
     setCarrinhoAberto(false);
@@ -1026,7 +1067,7 @@ export default function Home() {
 
     if (whatsapp) {
       const url = `https://wa.me/${whatsapp}?text=${encodeURIComponent(mensagem)}`;
-      window.open(url, "_blank", "noopener,noreferrer");
+      window.location.href = url;
     } else {
       setPedidoConsultado(pedido);
       setProtocoloConsulta(pedido.protocolo);
@@ -1204,13 +1245,29 @@ export default function Home() {
           className="h-10 w-full rounded-2xl border border-[#eadfcc] bg-[#fffaf2] px-4 text-sm font-semibold outline-none focus:border-[#f2552c] sm:h-auto sm:py-3"
         />
 
-        <input
-          value={telefoneCliente}
-          onChange={(event) => setTelefoneCliente(event.target.value)}
-          placeholder="WhatsApp: (21) 9XXXX-XXXX"
-          inputMode="tel"
-          className="h-10 w-full rounded-2xl border border-[#eadfcc] bg-[#fffaf2] px-4 text-sm font-semibold outline-none focus:border-[#f2552c] sm:h-auto sm:py-3"
-        />
+        <label>
+          <span className="mb-1 block text-[11px] font-black uppercase tracking-[0.12em] text-[#8b7866]">
+            WhatsApp
+          </span>
+          <div className="flex h-10 overflow-hidden rounded-2xl border border-[#eadfcc] bg-[#fffaf2] focus-within:border-[#f2552c] sm:h-auto">
+            <span className="grid shrink-0 place-items-center bg-[#fff0d0] px-3 text-sm font-black text-[#8b3b21] sm:py-3">
+              +55 21
+            </span>
+            <input
+              value={telefoneCliente}
+              onChange={(event) =>
+                setTelefoneCliente(whatsappClienteParaCampo(event.target.value))
+              }
+              placeholder="9XXXXXXXX"
+              inputMode="tel"
+              maxLength={9}
+              className="min-w-0 flex-1 bg-transparent px-3 text-base font-semibold outline-none placeholder:text-[#b7a895] sm:py-3"
+            />
+          </div>
+          <span className="mt-1 block text-[11px] font-semibold text-[#8b7866]">
+            Digite apenas o número depois do DDD.
+          </span>
+        </label>
 
         <div className="grid grid-cols-2 gap-2 rounded-2xl bg-[#fff8ea] p-1">
           <button

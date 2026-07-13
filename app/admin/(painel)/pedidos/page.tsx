@@ -147,6 +147,8 @@ function normalizarTelefone(telefone?: string) {
   const numeros = telefone?.replace(/\D/g, "") ?? "";
   if (!numeros) return "";
   if (numeros.startsWith("55")) return numeros;
+  if (numeros.startsWith("21")) return `55${numeros}`;
+  if (numeros.length === 9) return `5521${numeros}`;
   return `55${numeros}`;
 }
 
@@ -171,17 +173,20 @@ function abrirWhatsAppCliente(pedido: PedidoLocal, status: PedidoStatus) {
   const mensagem = encodeURIComponent(mensagemStatus(pedido, status));
 
   if (!telefone) {
-    window.open(`https://wa.me/?text=${mensagem}`, "_blank", "noopener,noreferrer");
+    window.location.href = `https://wa.me/?text=${mensagem}`;
     return;
   }
 
-  window.open(`https://wa.me/${telefone}?text=${mensagem}`, "_blank", "noopener,noreferrer");
+  window.location.href = `https://wa.me/${telefone}?text=${mensagem}`;
 }
 
 export default function PedidosPage() {
   const { pizzaria, erro, carregando } = useAdminPizzaria();
   const [pedidos, setPedidos] = useState<PedidoLocal[]>([]);
   const [statusFiltro, setStatusFiltro] = useState<PedidoStatus | "Todos">("Todos");
+  const [pedidosOcultos, setPedidosOcultos] = useState<Set<string>>(new Set());
+  const [atualizando, setAtualizando] = useState(false);
+  const [mensagemAcao, setMensagemAcao] = useState("");
 
   useEffect(() => {
     if (!pizzaria) return;
@@ -206,20 +211,26 @@ export default function PedidosPage() {
 
   const pedidosFiltrados = useMemo(() => {
     if (statusFiltro === "Todos") {
-      return pedidos.filter((pedido) => pedido.status !== "Encerrado");
+      return pedidos.filter(
+        (pedido) => pedido.status !== "Encerrado" && !pedidosOcultos.has(pedido.id)
+      );
     }
-    return pedidos.filter((pedido) => pedido.status === statusFiltro);
-  }, [pedidos, statusFiltro]);
+    return pedidos.filter(
+      (pedido) => pedido.status === statusFiltro && !pedidosOcultos.has(pedido.id)
+    );
+  }, [pedidos, pedidosOcultos, statusFiltro]);
 
   const totaisPorStatus = useMemo(() => {
     return statusPedido.reduce(
       (mapa, status) => ({
         ...mapa,
-        [status]: pedidos.filter((pedido) => pedido.status === status).length,
+        [status]: pedidos.filter(
+          (pedido) => pedido.status === status && !pedidosOcultos.has(pedido.id)
+        ).length,
       }),
       {} as Record<PedidoStatus, number>
     );
-  }, [pedidos]);
+  }, [pedidos, pedidosOcultos]);
 
   async function atualizarStatus(pedidoId: string, status: PedidoStatus) {
     if (!pizzaria) return;
@@ -247,12 +258,32 @@ export default function PedidosPage() {
 
   function limparFinalizados() {
     if (!pizzaria) return;
+    const idsEncerrados = pedidos
+      .filter((pedido) => pedido.status === "Encerrado")
+      .map((pedido) => pedido.id);
+
+    if (idsEncerrados.length === 0) {
+      setMensagemAcao("Nenhum encerrado para limpar.");
+      window.setTimeout(() => setMensagemAcao(""), 2000);
+      return;
+    }
+
+    setPedidosOcultos((atuais) => new Set([...Array.from(atuais), ...idsEncerrados]));
     setStatusFiltro("Todos");
+    setMensagemAcao("Encerrados removidos desta tela. Eles continuam no histórico.");
+    window.setTimeout(() => setMensagemAcao(""), 2500);
   }
 
   async function recarregarPedidos() {
     if (!pizzaria) return;
-    setPedidos((await carregarPedidosBanco()) as PedidoLocal[]);
+    setAtualizando(true);
+    try {
+      setPedidos((await carregarPedidosBanco()) as PedidoLocal[]);
+      setMensagemAcao("Pedidos atualizados.");
+      window.setTimeout(() => setMensagemAcao(""), 2000);
+    } finally {
+      setAtualizando(false);
+    }
   }
 
   if (carregando) {
@@ -277,9 +308,10 @@ export default function PedidosPage() {
             <button
               type="button"
               onClick={recarregarPedidos}
-              className="rounded-2xl border border-white/10 bg-white/[0.04] px-5 py-3 text-sm font-black text-zinc-100"
+              disabled={atualizando}
+              className="rounded-2xl border border-white/10 bg-white/[0.04] px-5 py-3 text-sm font-black text-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              Atualizar
+              {atualizando ? "Atualizando..." : "Atualizar"}
             </button>
             <button
               type="button"
@@ -291,6 +323,12 @@ export default function PedidosPage() {
           </div>
         </div>
       </section>
+
+      {mensagemAcao && (
+        <div className="rounded-2xl border border-emerald-400/30 bg-emerald-400/10 p-4 text-sm font-bold text-emerald-100">
+          {mensagemAcao}
+        </div>
+      )}
 
       {erro && (
         <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-sm font-bold text-red-200">
