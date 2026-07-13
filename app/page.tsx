@@ -1742,16 +1742,28 @@ export default function Home() {
         >
           <div
             ref={produtoModalRef}
-            className="max-h-[92vh] w-full overflow-y-auto rounded-t-[28px] bg-[#fffaf2] shadow-2xl sm:max-w-xl sm:rounded-[40px]"
+            className="max-h-[100dvh] w-full overflow-y-auto rounded-t-[28px] bg-[#fffaf2] shadow-2xl sm:max-h-[92vh] sm:max-w-xl sm:rounded-[40px]"
           >
-            <div className="relative overflow-hidden bg-[#ffd65a] px-4 pb-4 pt-3 sm:px-5 sm:pb-8 sm:pt-5">
+            <div className="relative overflow-hidden bg-[#ffd65a] px-4 pb-4 pt-[max(env(safe-area-inset-top),0.75rem)] sm:px-5 sm:pb-8 sm:pt-5">
               <div className="flex items-center justify-between">
                 <button
                   type="button"
                   onClick={fecharProduto}
-                  className="grid h-9 w-9 place-items-center rounded-full bg-white/90 text-lg font-black shadow-sm sm:h-11 sm:w-11 sm:text-xl"
+                  aria-label="Voltar ao cardápio"
+                  className="grid h-10 w-10 place-items-center rounded-full bg-white/95 text-[#1d1009] shadow-sm transition active:scale-95 sm:h-11 sm:w-11"
                 >
-                  {"<"}
+                  <svg
+                    aria-hidden="true"
+                    viewBox="0 0 24 24"
+                    className="h-5 w-5"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.6"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M15 18 9 12l6-6" />
+                  </svg>
                 </button>
                 <button
                   type="button"
