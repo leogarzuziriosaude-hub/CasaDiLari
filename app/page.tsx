@@ -540,6 +540,8 @@ export default function Home() {
   const [protocoloConsulta, setProtocoloConsulta] = useState("");
   const [pedidoConsultado, setPedidoConsultado] = useState<PedidoLocal | null>(null);
   const [erroConsulta, setErroConsulta] = useState("");
+  const [consultandoPedido, setConsultandoPedido] = useState(false);
+  const [colandoProtocolo, setColandoProtocolo] = useState(false);
   const [enviandoPedido, setEnviandoPedido] = useState(false);
   const produtoModalRef = useRef<HTMLDivElement | null>(null);
   const carrinhoModalRef = useRef<HTMLDivElement | null>(null);
@@ -1124,12 +1126,18 @@ export default function Home() {
 
   async function consultarPedido() {
     const protocolo = protocoloConsulta.trim().toUpperCase();
+    if (!protocolo || consultandoPedido) return;
 
     let pedido: PedidoApp | null = null;
+    setConsultandoPedido(true);
+    setErroConsulta("");
+
     try {
       pedido = await consultarPedidoPorProtocolo(protocolo);
     } catch {
       pedido = null;
+    } finally {
+      setConsultandoPedido(false);
     }
 
     if (!pedido) {
@@ -1146,6 +1154,28 @@ export default function Home() {
       mensagem: pedido.mensagem ?? "",
     });
     setErroConsulta("");
+  }
+
+  async function colarProtocoloConsulta() {
+    if (colandoProtocolo) return;
+
+    setColandoProtocolo(true);
+    try {
+      const texto = await navigator.clipboard.readText();
+      const protocolo = texto.trim().toUpperCase();
+
+      if (!protocolo) {
+        setErroConsulta("Não encontrei nenhum protocolo copiado.");
+        return;
+      }
+
+      setProtocoloConsulta(protocolo);
+      setErroConsulta("");
+    } catch {
+      setErroConsulta("Não foi possível colar automaticamente. Cole o protocolo manualmente.");
+    } finally {
+      window.setTimeout(() => setColandoProtocolo(false), 250);
+    }
   }
 
   const carrinhoPainel = (
@@ -1753,21 +1783,36 @@ export default function Home() {
               </button>
             </div>
 
-            <div className="mt-4 grid gap-2 sm:grid-cols-[1fr_auto]">
+            <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-[1fr_auto_auto]">
               <input
                 value={protocoloConsulta}
                 onChange={(event) => setProtocoloConsulta(event.target.value.toUpperCase())}
                 placeholder="Cole seu protocolo"
-                className="h-12 rounded-2xl border border-[#eadfcc] bg-[#fffaf2] px-4 text-sm font-bold uppercase outline-none focus:border-[#f2552c]"
+                className="col-span-2 h-12 rounded-2xl border border-[#eadfcc] bg-[#fffaf2] px-4 text-base font-bold uppercase outline-none focus:border-[#f2552c] sm:col-span-1 sm:text-sm"
               />
               <button
                 type="button"
-                onClick={consultarPedido}
-                className="rounded-2xl bg-[#f2552c] px-5 py-3 text-sm font-black text-white"
+                onClick={colarProtocoloConsulta}
+                disabled={colandoProtocolo}
+                className="rounded-2xl border border-[#eadfcc] bg-[#fff8ea] px-4 py-3 text-sm font-black text-[#1d1009] shadow-sm transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-70"
               >
-                Consultar
+                {colandoProtocolo ? "Colando..." : "Colar"}
+              </button>
+              <button
+                type="button"
+                onClick={consultarPedido}
+                disabled={consultandoPedido || !protocoloConsulta.trim()}
+                className="rounded-2xl bg-[#f2552c] px-5 py-3 text-sm font-black text-white shadow-lg shadow-[#f2552c]/20 transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-70"
+              >
+                {consultandoPedido ? "Consultando..." : "Consultar"}
               </button>
             </div>
+
+            {consultandoPedido && (
+              <div className="mt-3 overflow-hidden rounded-full bg-[#fff0d0]">
+                <div className="h-1.5 w-1/2 animate-pulse rounded-full bg-[#f2552c]" />
+              </div>
+            )}
 
             {erroConsulta && (
               <p className="mt-3 rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700">
