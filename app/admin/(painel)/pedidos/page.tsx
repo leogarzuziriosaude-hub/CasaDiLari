@@ -2,6 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useAdminPizzaria } from "@/lib/useAdminPizzaria";
+import {
+  atualizarStatusPedidoBanco,
+  carregarPedidosBanco,
+  type PedidoApp,
+  type PedidoStatusApp,
+} from "@/lib/casadilariSupabase";
 
 type ItemPedido = {
   id: string;
@@ -17,33 +23,10 @@ type ItemPedido = {
   observacao: string;
 };
 
-type PedidoStatus =
-  | "Recebido"
-  | "Em preparo"
-  | "Saiu pra entrega"
-  | "Disponivel para retirada"
-  | "Encerrado";
+type PedidoStatus = PedidoStatusApp;
 
-type PedidoLocal = {
-  id: string;
-  numero: number;
-  protocolo?: string;
-  cliente: string;
-  telefone?: string;
-  status: PedidoStatus;
-  criadoEm: string;
-  tipoPedido?: "Agora" | "Encomenda";
-  dataEncomenda?: string | null;
-  horaEncomenda?: string | null;
-  tipoEntrega: "Entrega" | "Retirada";
-  endereco: string;
-  bairro: string;
-  referencia: string;
-  formaPagamento: string;
-  troco: string;
+type PedidoLocal = PedidoApp & {
   itens: ItemPedido[];
-  total: number;
-  mensagem: string;
 };
 
 const statusPedido: PedidoStatus[] = [
@@ -203,11 +186,22 @@ export default function PedidosPage() {
   useEffect(() => {
     if (!pizzaria) return;
 
-    const timerId = window.setTimeout(() => {
-      setPedidos(carregarPedidosLocais(pizzaria.id));
-    }, 0);
+    let ativo = true;
 
-    return () => window.clearTimeout(timerId);
+    async function carregar() {
+      try {
+        const pedidosBanco = await carregarPedidosBanco();
+        if (ativo) setPedidos(pedidosBanco as PedidoLocal[]);
+      } catch {
+        if (ativo) setPedidos([]);
+      }
+    }
+
+    void carregar();
+
+    return () => {
+      ativo = false;
+    };
   }, [pizzaria]);
 
   const pedidosFiltrados = useMemo(() => {
@@ -227,7 +221,7 @@ export default function PedidosPage() {
     );
   }, [pedidos]);
 
-  function atualizarStatus(pedidoId: string, status: PedidoStatus) {
+  async function atualizarStatus(pedidoId: string, status: PedidoStatus) {
     if (!pizzaria) return;
 
     const pedidoAtual = pedidos.find((pedido) => pedido.id === pedidoId);
@@ -236,7 +230,12 @@ export default function PedidosPage() {
     );
 
     setPedidos(proximosPedidos);
-    salvarPedidosLocais(pizzaria.id, proximosPedidos);
+    try {
+      await atualizarStatusPedidoBanco(pedidoId, status);
+    } catch {
+      setPedidos(pedidos);
+      return;
+    }
 
     if (
       pedidoAtual &&
@@ -248,29 +247,12 @@ export default function PedidosPage() {
 
   function limparFinalizados() {
     if (!pizzaria) return;
-
-    const pedidosEncerrados = pedidos.filter((pedido) => pedido.status === "Encerrado");
-    const proximosPedidos = pedidos.filter((pedido) => pedido.status !== "Encerrado");
-    const historicoAtual = carregarHistoricoPedidosLocais(pizzaria.id);
-    const historicoSemDuplicados = historicoAtual.filter(
-      (pedidoHistorico) =>
-        !pedidosEncerrados.some((pedidoEncerrado) => pedidoEncerrado.id === pedidoHistorico.id)
-    );
-
-    setPedidos(proximosPedidos);
-    salvarPedidosLocais(pizzaria.id, proximosPedidos);
-    salvarHistoricoPedidosLocais(pizzaria.id, [
-      ...pedidosEncerrados.map((pedido) => ({
-        ...pedido,
-        status: "Encerrado" as const,
-      })),
-      ...historicoSemDuplicados,
-    ]);
+    setStatusFiltro("Todos");
   }
 
-  function recarregarPedidos() {
+  async function recarregarPedidos() {
     if (!pizzaria) return;
-    setPedidos(carregarPedidosLocais(pizzaria.id));
+    setPedidos((await carregarPedidosBanco()) as PedidoLocal[]);
   }
 
   if (carregando) {

@@ -1,6 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import {
+  carregarConfiguracaoLoja,
+  configuracaoPadrao,
+  type ConfiguracaoLoja,
+} from "@/lib/casadilariSupabase";
 
 export type UsuarioAdmin = {
   id: string;
@@ -9,96 +14,64 @@ export type UsuarioAdmin = {
   pizzaria_id: string;
 };
 
-export type PizzariaAdmin = {
-  id: string;
-  nome: string;
-  slug: string;
-  whatsapp: string;
-  endereco?: string | null;
-  status_aberto: boolean;
-  tempo_entrega_min: number;
-  tempo_entrega_max: number;
-  tempo_entrega_texto?: string | null;
-  permite_encomendas: boolean;
-  encomenda_hora_inicio?: string | null;
-  encomenda_hora_fim?: string | null;
-  mensagem_aviso: string | null;
-  imagem_url?: string | null;
-};
+export type PizzariaAdmin = ConfiguracaoLoja;
 
 const usuarioFrontOnly: UsuarioAdmin = {
-  id: "front-admin",
+  id: "admin",
   nome: "Administrador",
   perfil: "admin",
-  pizzaria_id: "front-pizzaria",
+  pizzaria_id: configuracaoPadrao.id,
 };
 
-const pizzariaFrontOnly: PizzariaAdmin = {
-  id: "front-pizzaria",
-  nome: "Casa Di Lari",
-  slug: "casadilari",
-  whatsapp: "",
-  endereco: "",
-  status_aberto: true,
-  tempo_entrega_min: 30,
-  tempo_entrega_max: 45,
-  tempo_entrega_texto: "30-45 min",
-  permite_encomendas: true,
-  encomenda_hora_inicio: "18:00",
-  encomenda_hora_fim: "20:00",
-  mensagem_aviso: "Escolha seus sabores e faça seu pedido.",
-  imagem_url: null,
-};
-
-export function pizzariaConfigKey(pizzariaId = "front-pizzaria") {
+export function pizzariaConfigKey(pizzariaId = configuracaoPadrao.id) {
   return `casadilari:config:${pizzariaId}`;
 }
 
 export function carregarConfigPizzariaLocal(): PizzariaAdmin {
-  if (typeof window === "undefined") return pizzariaFrontOnly;
-
-  try {
-    const valor = window.localStorage.getItem(pizzariaConfigKey());
-    const config = valor ? { ...pizzariaFrontOnly, ...JSON.parse(valor) } : pizzariaFrontOnly;
-
-    if (
-      config.mensagem_aviso === "Monte o cardapio pelo front." ||
-      config.mensagem_aviso === "Escolha seus sabores e faca seu pedido."
-    ) {
-      return {
-        ...config,
-        mensagem_aviso: pizzariaFrontOnly.mensagem_aviso,
-      };
-    }
-
-    return config;
-  } catch {
-    return pizzariaFrontOnly;
-  }
+  return configuracaoPadrao;
 }
 
 export function useAdminPizzaria() {
   const [usuario] = useState<UsuarioAdmin | null>(usuarioFrontOnly);
-  const [pizzaria, setPizzaria] = useState<PizzariaAdmin | null>(pizzariaFrontOnly);
+  const [pizzaria, setPizzaria] = useState<PizzariaAdmin | null>(null);
+  const [erro, setErro] = useState("");
+  const [carregando, setCarregando] = useState(true);
 
   useEffect(() => {
-    function atualizarConfig() {
-      setPizzaria(carregarConfigPizzariaLocal());
+    let ativo = true;
+
+    async function carregar() {
+      try {
+        const config = await carregarConfiguracaoLoja();
+        if (!ativo) return;
+
+        setPizzaria(config);
+        setErro("");
+      } catch {
+        if (!ativo) return;
+
+        setPizzaria(configuracaoPadrao);
+        setErro("Não foi possível carregar as configurações da loja.");
+      } finally {
+        if (ativo) setCarregando(false);
+      }
     }
 
-    const timerId = window.setTimeout(atualizarConfig, 0);
+    void carregar();
+
+    function atualizarConfig() {
+      void carregar();
+    }
 
     window.addEventListener("focus", atualizarConfig);
-    window.addEventListener("storage", atualizarConfig);
     window.addEventListener("casadilari:config-updated", atualizarConfig);
 
     return () => {
-      window.clearTimeout(timerId);
+      ativo = false;
       window.removeEventListener("focus", atualizarConfig);
-      window.removeEventListener("storage", atualizarConfig);
       window.removeEventListener("casadilari:config-updated", atualizarConfig);
     };
   }, []);
 
-  return { usuario, pizzaria, erro: "", carregando: false };
+  return { usuario, pizzaria, erro, carregando };
 }

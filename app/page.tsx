@@ -3,6 +3,13 @@
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useModalClose } from "@/lib/useModalClose";
+import {
+  carregarCardapio,
+  carregarConfiguracaoLoja,
+  consultarPedidoPorProtocolo,
+  criarPedidoPublico,
+  type PedidoApp,
+} from "@/lib/casadilariSupabase";
 
 type OpcaoProduto = {
   id: string;
@@ -56,12 +63,14 @@ type ItemCarrinho = {
   preco: number;
   sabores: {
     nome: string;
+    produtoId?: string;
   }[];
   borda: string;
   precoBorda: number;
   adicionais: {
     nome: string;
     preco: number;
+    produtoId?: string;
   }[];
   quantidade: number;
   observacao: string;
@@ -73,7 +82,12 @@ type PedidoLocal = {
   protocolo: string;
   cliente: string;
   telefone: string;
-  status: "Recebido" | "Em preparo" | "Saiu pra entrega" | "Disponivel para retirada";
+  status:
+    | "Recebido"
+    | "Em preparo"
+    | "Saiu pra entrega"
+    | "Disponivel para retirada"
+    | "Encerrado";
   criadoEm: string;
   tipoPedido?: "Agora" | "Encomenda";
   dataEncomenda?: string | null;
@@ -86,7 +100,7 @@ type PedidoLocal = {
   troco: string;
   itens: ItemCarrinho[];
   total: number;
-  mensagem: string;
+  mensagem?: string;
 };
 
 const formasPagamento = ["Pix", "Dinheiro", "Cartão de Crédito", "Cartão de Débito"];
@@ -447,6 +461,7 @@ function textoStatusCliente(status?: PedidoLocal["status"]) {
   if (status === "Em preparo") return "Estamos preparando seu pedido.";
   if (status === "Saiu pra entrega") return "Seu pedido saiu pra entrega.";
   if (status === "Disponivel para retirada") return "Seu pedido está disponível para retirada.";
+  if (status === "Encerrado") return "Pedido encerrado.";
   return "Pedido recebido.";
 }
 
@@ -512,29 +527,65 @@ export default function Home() {
   useModalClose(consultaAberta, () => setConsultaAberta(false), consultaModalRef);
 
   useEffect(() => {
-    const timerId = window.setTimeout(() => {
-      setPizzaria(carregarConfigPizzariaLocal());
-      setProdutos(carregarProdutosLocais());
-      setCategoriasOrdenadas(carregarCategoriasLocais());
-      setBordas(carregarBordasLocais());
-      setCarregando(false);
-    }, 0);
+    let ativo = true;
 
-    return () => window.clearTimeout(timerId);
+    async function carregarDados() {
+      try {
+        const [config, cardapio] = await Promise.all([
+          carregarConfiguracaoLoja(),
+          carregarCardapio(),
+        ]);
+
+        if (!ativo) return;
+
+        setPizzaria(config);
+        setProdutos(
+          cardapio.produtos
+            .map((produto) => ({
+              id: produto.id,
+              nome: produto.nome,
+              categoria: produto.categoria,
+              descricao: produto.descricao ?? "",
+              destaque: false,
+              imagemUrl: produto.imagem_url ?? null,
+              opcoes: produto.opcoes,
+            }))
+            .filter((produto) => produto.opcoes.length > 0)
+        );
+        setCategoriasOrdenadas(cardapio.categorias);
+        setBordas(cardapio.bordas);
+      } catch {
+        if (!ativo) return;
+        setPizzaria(pizzariaFrontOnly);
+        setProdutos([]);
+        setCategoriasOrdenadas([]);
+        setBordas([]);
+      } finally {
+        if (ativo) setCarregando(false);
+      }
+    }
+
+    void carregarDados();
+
+    return () => {
+      ativo = false;
+    };
   }, []);
 
   useEffect(() => {
-    function atualizarConfig() {
-      setPizzaria(carregarConfigPizzariaLocal());
+    async function atualizarConfig() {
+      try {
+        setPizzaria(await carregarConfiguracaoLoja());
+      } catch {
+        setPizzaria(pizzariaFrontOnly);
+      }
     }
 
     window.addEventListener("focus", atualizarConfig);
-    window.addEventListener("storage", atualizarConfig);
     window.addEventListener("casadilari:config-updated", atualizarConfig);
 
     return () => {
       window.removeEventListener("focus", atualizarConfig);
-      window.removeEventListener("storage", atualizarConfig);
       window.removeEventListener("casadilari:config-updated", atualizarConfig);
     };
   }, []);
@@ -701,7 +752,7 @@ export default function Home() {
     const borda = produtoSelecionadoEhPizza ? bordaSelecionada : null;
     const saboresDoPedido =
       produtoSelecionadoEhPizza
-        ? saboresDoItem.map((sabor) => ({ nome: sabor.nome }))
+        ? saboresDoItem.map((sabor) => ({ nome: sabor.nome, produtoId: sabor.id }))
         : [];
     const adicionaisDoItem =
       produtoSelecionadoEhPizza
@@ -710,6 +761,7 @@ export default function Home() {
             .map((adicional) => ({
               nome: adicional.nome,
               preco: adicional.opcoes[0]?.preco ?? 0,
+              produtoId: adicional.id,
             }))
         : [];
 
@@ -862,14 +914,20 @@ export default function Home() {
     return true;
   }
 
-  function finalizarPedido(agendamento?: { data: Date; hora: string }) {
+  async function finalizarPedido(agendamento?: { data: Date; hora: string }) {
     if (envioEmAndamentoRef.current) return;
 
     envioEmAndamentoRef.current = true;
     setEnviandoPedido(true);
 
-    const configAtual = carregarConfigPizzariaLocal();
-    setPizzaria(configAtual);
+    let configAtual = pizzaria;
+
+    try {
+      configAtual = await carregarConfiguracaoLoja();
+      setPizzaria(configAtual);
+    } catch {
+      configAtual = pizzaria;
+    }
 
     const antiSpam = validarAntiSpamPedido(telefoneCliente);
     if (!antiSpam.permitido) {
@@ -886,19 +944,48 @@ export default function Home() {
         }
       : undefined;
     const mensagem = montarMensagemWhatsApp(configAtual, agendamentoMensagem);
-    const pedidosAtuais = carregarPedidosLocais();
-    const proximoNumero =
-      pedidosAtuais.reduce((maiorNumero, pedido) => Math.max(maiorNumero, pedido.numero), 0) + 1;
-    let protocolo = gerarProtocolo();
 
-    while (pedidosAtuais.some((pedido) => pedido.protocolo === protocolo)) {
-      protocolo = gerarProtocolo();
-    }
+    try {
+      const pedidoCriado = await criarPedidoPublico({
+        cliente_nome: nomeCliente.trim(),
+        cliente_whatsapp: telefoneCliente.trim(),
+        tipo_pedido: agendamento ? "encomenda" : "agora",
+        data_encomenda: agendamento ? dataIsoLocal(agendamento.data) : null,
+        hora_encomenda: agendamento?.hora ?? null,
+        tipo_entrega: tipoEntrega === "Entrega" ? "entrega" : "retirada",
+        endereco: endereco.trim(),
+        bairro: bairro.trim(),
+        referencia: referencia.trim(),
+        forma_pagamento: formaPagamento,
+        troco: troco.trim(),
+        total_informado_cliente: total,
+        mensagem_whatsapp: mensagem,
+        user_agent: navigator.userAgent,
+        itens: carrinho.map((item) => ({
+          produto_id: item.produtoId,
+          opcao_id:
+            produtos
+              .find((produto) => produto.id === item.produtoId)
+              ?.opcoes.find((opcao) => opcao.nome === item.opcao)?.id ?? "",
+          borda_id: bordas.find((borda) => borda.nome === item.borda)?.id ?? "",
+          categoria_snapshot: item.categoria,
+          quantidade: item.quantidade,
+          observacao: item.observacao,
+          sabores: item.sabores.map((sabor) => ({
+            produto_id: sabor.produtoId ?? "",
+            nome: sabor.nome,
+          })),
+          adicionais: item.adicionais.map((adicional) => ({
+            produto_id: adicional.produtoId ?? "",
+            nome: adicional.nome,
+          })),
+        })),
+      });
 
-    const pedido: PedidoLocal = {
-      id: `local-${crypto.randomUUID()}`,
-      numero: proximoNumero,
-      protocolo,
+      const pedido: PedidoLocal = {
+      id: pedidoCriado.id,
+      numero: Number(pedidoCriado.numero),
+      protocolo: pedidoCriado.protocolo,
       cliente: nomeCliente.trim(),
       telefone: telefoneCliente.trim(),
       status: "Recebido",
@@ -913,11 +1000,10 @@ export default function Home() {
       formaPagamento,
       troco: troco.trim(),
       itens: carrinho,
-      total,
+      total: Number(pedidoCriado.total_calculado),
       mensagem,
     };
 
-    salvarPedidosLocais([pedido, ...pedidosAtuais]);
     registrarEnvioPedido(telefoneCliente);
 
     setCarrinho([]);
@@ -940,7 +1026,10 @@ export default function Home() {
       window.open(url, "_blank", "noopener,noreferrer");
     } else {
       setPedidoConsultado(pedido);
-      setProtocoloConsulta(protocolo);
+      setProtocoloConsulta(pedido.protocolo);
+    }
+    } catch {
+      alert("Não foi possível registrar o pedido. Tente novamente.");
     }
 
     window.setTimeout(() => {
@@ -949,11 +1038,16 @@ export default function Home() {
     }, 800);
   }
 
-  function enviarWhatsApp() {
+  async function enviarWhatsApp() {
     if (envioEmAndamentoRef.current) return;
 
-    const configAtual = carregarConfigPizzariaLocal();
-    setPizzaria(configAtual);
+    let configAtual = pizzaria;
+    try {
+      configAtual = await carregarConfiguracaoLoja();
+      setPizzaria(configAtual);
+    } catch {
+      configAtual = pizzaria;
+    }
 
     if (!validarDadosPedido()) return;
 
@@ -967,7 +1061,7 @@ export default function Home() {
       return;
     }
 
-    finalizarPedido();
+    void finalizarPedido();
   }
 
   function confirmarEncomenda() {
@@ -981,14 +1075,18 @@ export default function Home() {
       return;
     }
 
-    finalizarPedido({ data: dataProximaEncomenda, hora });
+    void finalizarPedido({ data: dataProximaEncomenda, hora });
   }
 
-  function consultarPedido() {
+  async function consultarPedido() {
     const protocolo = protocoloConsulta.trim().toUpperCase();
-    const pedido = carregarPedidosLocais().find(
-      (pedidoItem) => pedidoItem.protocolo?.toUpperCase() === protocolo
-    );
+
+    let pedido: PedidoApp | null = null;
+    try {
+      pedido = await consultarPedidoPorProtocolo(protocolo);
+    } catch {
+      pedido = null;
+    }
 
     if (!pedido) {
       setPedidoConsultado(null);
@@ -996,7 +1094,13 @@ export default function Home() {
       return;
     }
 
-    setPedidoConsultado(pedido);
+    setPedidoConsultado({
+      ...pedido,
+      protocolo: pedido.protocolo ?? protocolo,
+      telefone: pedido.telefone ?? "",
+      itens: [],
+      mensagem: pedido.mensagem ?? "",
+    });
     setErroConsulta("");
   }
 

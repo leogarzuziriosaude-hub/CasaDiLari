@@ -26,17 +26,14 @@ export default function AdminHomePage() {
         supabase
           .from("produtos")
           .select("id", { count: "exact", head: true })
-          .eq("pizzaria_id", pizzaria.id)
           .eq("ativo", true),
         supabase
           .from("categorias")
           .select("id", { count: "exact", head: true })
-          .eq("pizzaria_id", pizzaria.id)
           .eq("ativo", true),
         supabase
           .from("bordas")
           .select("id", { count: "exact", head: true })
-          .eq("pizzaria_id", pizzaria.id)
           .eq("ativo", true),
       ]);
 

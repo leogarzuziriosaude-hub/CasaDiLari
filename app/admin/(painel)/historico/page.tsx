@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useAdminPizzaria } from "@/lib/useAdminPizzaria";
+import { carregarPedidosBanco, type PedidoApp } from "@/lib/casadilariSupabase";
 
 type ItemPedido = {
   id: string;
@@ -17,41 +18,7 @@ type ItemPedido = {
   observacao: string;
 };
 
-type PedidoHistorico = {
-  id: string;
-  numero: number;
-  protocolo?: string;
-  cliente: string;
-  telefone?: string;
-  status: string;
-  criadoEm: string;
-  tipoPedido?: "Agora" | "Encomenda";
-  dataEncomenda?: string | null;
-  horaEncomenda?: string | null;
-  tipoEntrega: "Entrega" | "Retirada";
-  endereco: string;
-  bairro: string;
-  referencia: string;
-  formaPagamento: string;
-  troco: string;
-  itens: ItemPedido[];
-  total: number;
-};
-
-function historicoPedidosLocaisKey(pizzariaId: string) {
-  return `casadilari:pedidos-historico:${pizzariaId}`;
-}
-
-function carregarHistoricoPedidosLocais(pizzariaId: string): PedidoHistorico[] {
-  if (typeof window === "undefined") return [];
-
-  try {
-    const valor = window.localStorage.getItem(historicoPedidosLocaisKey(pizzariaId));
-    return valor ? (JSON.parse(valor) as PedidoHistorico[]) : [];
-  } catch {
-    return [];
-  }
-}
+type PedidoHistorico = PedidoApp & { itens: ItemPedido[] };
 
 function dinheiro(valor: number) {
   return valor.toLocaleString("pt-BR", {
@@ -87,11 +54,22 @@ export default function HistoricoPage() {
   useEffect(() => {
     if (!pizzaria) return;
 
-    const timerId = window.setTimeout(() => {
-      setPedidos(carregarHistoricoPedidosLocais(pizzaria.id));
-    }, 0);
+    let ativo = true;
 
-    return () => window.clearTimeout(timerId);
+    async function carregarHistorico() {
+      try {
+        const pedidosBanco = await carregarPedidosBanco("Encerrado");
+        if (ativo) setPedidos(pedidosBanco as PedidoHistorico[]);
+      } catch {
+        if (ativo) setPedidos([]);
+      }
+    }
+
+    void carregarHistorico();
+
+    return () => {
+      ativo = false;
+    };
   }, [pizzaria]);
 
   const totalHistorico = useMemo(() => {

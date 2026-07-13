@@ -1,11 +1,8 @@
 "use client";
 
 import { FormEvent, useEffect, useRef, useState } from "react";
-import {
-  carregarConfigPizzariaLocal,
-  pizzariaConfigKey,
-  useAdminPizzaria,
-} from "@/lib/useAdminPizzaria";
+import { useAdminPizzaria } from "@/lib/useAdminPizzaria";
+import { salvarConfiguracaoLoja } from "@/lib/casadilariSupabase";
 
 function arquivoParaDataUrl(arquivo: File) {
   return new Promise<string>((resolve, reject) => {
@@ -32,20 +29,21 @@ export default function ConfiguracoesPage() {
   const sucessoTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
+    if (!pizzaria) return;
+
     const timerId = window.setTimeout(() => {
-      const config = carregarConfigPizzariaLocal();
-      setNomeLoja(config.nome ?? "");
-      setWhatsapp(config.whatsapp ?? "");
-      setEnderecoLoja(config.endereco ?? "");
-      setTempoEntrega(config.tempo_entrega_texto ?? "");
-      setHoraEncomendaInicio(config.encomenda_hora_inicio ?? "18:00");
-      setHoraEncomendaFim(config.encomenda_hora_fim ?? "20:00");
-      setLojaAberta(Boolean(config.status_aberto));
-      setFotoLoja(config.imagem_url ?? "");
+      setNomeLoja(pizzaria.nome ?? "");
+      setWhatsapp(pizzaria.whatsapp ?? "");
+      setEnderecoLoja(pizzaria.endereco ?? "");
+      setTempoEntrega(pizzaria.tempo_entrega_texto ?? "");
+      setHoraEncomendaInicio(pizzaria.encomenda_hora_inicio ?? "18:00");
+      setHoraEncomendaFim(pizzaria.encomenda_hora_fim ?? "20:00");
+      setLojaAberta(Boolean(pizzaria.status_aberto));
+      setFotoLoja(pizzaria.imagem_url ?? "");
     }, 0);
 
     return () => window.clearTimeout(timerId);
-  }, []);
+  }, [pizzaria]);
 
   useEffect(() => {
     return () => {
@@ -69,10 +67,18 @@ export default function ConfiguracoesPage() {
   }
 
   function montarConfig(statusAberto = lojaAberta) {
-    const configAtual = carregarConfigPizzariaLocal();
-
     return {
-      ...configAtual,
+      ...(pizzaria ?? {
+        id: "casa-di-lari",
+        slug: "casadilari",
+        tempo_entrega_min: 30,
+        tempo_entrega_max: 45,
+        permite_encomendas: true,
+        mensagem_aviso: "Escolha seus sabores e faça seu pedido.",
+        whatsapp: "",
+        nome: "Casa Di Lari",
+        status_aberto: true,
+      }),
       nome: nomeLoja.trim() || "Minha pizzaria",
       slug: nomeLoja.trim() || "Minha pizzaria",
       whatsapp: whatsapp.trim(),
@@ -85,16 +91,19 @@ export default function ConfiguracoesPage() {
     };
   }
 
-  function salvarConfigLocal(config: ReturnType<typeof montarConfig>) {
-    window.localStorage.setItem(pizzariaConfigKey(config.id), JSON.stringify(config));
-    window.localStorage.setItem(pizzariaConfigKey(), JSON.stringify(config));
-    window.dispatchEvent(new Event("casadilari:config-updated"));
-  }
+  async function alternarLojaAberta() {
+    if (!pizzaria || salvando) return;
 
-  function alternarLojaAberta() {
     const proximoStatus = !lojaAberta;
     setLojaAberta(proximoStatus);
-    salvarConfigLocal(montarConfig(proximoStatus));
+
+    try {
+      await salvarConfiguracaoLoja(montarConfig(proximoStatus));
+      window.dispatchEvent(new Event("casadilari:config-updated"));
+    } catch {
+      setLojaAberta(!proximoStatus);
+      setFeedback("Não foi possível alterar o status da loja.");
+    }
   }
 
   async function selecionarFoto(arquivo: File | null) {
@@ -112,18 +121,22 @@ export default function ConfiguracoesPage() {
     }
   }
 
-  function salvarConfiguracoes(event: FormEvent<HTMLFormElement>) {
+  async function salvarConfiguracoes(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!pizzaria || salvando) return;
 
     setSalvando(true);
     setFeedback("");
 
-    window.setTimeout(() => {
-      salvarConfigLocal(montarConfig());
-      setSalvando(false);
+    try {
+      await salvarConfiguracaoLoja(montarConfig());
+      window.dispatchEvent(new Event("casadilari:config-updated"));
       mostrarSucesso();
-    }, 450);
+    } catch {
+      setFeedback("Não foi possível salvar as configurações.");
+    } finally {
+      setSalvando(false);
+    }
   }
 
   if (carregando) {

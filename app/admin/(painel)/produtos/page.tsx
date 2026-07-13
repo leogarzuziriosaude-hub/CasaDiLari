@@ -13,6 +13,15 @@ import { useAdminPizzaria } from "@/lib/useAdminPizzaria";
 import { useModalClose } from "@/lib/useModalClose";
 import { ConfirmDialog } from "@/lib/ConfirmDialog";
 import { FeedbackDialog } from "@/lib/FeedbackDialog";
+import {
+  carregarCardapio,
+  criarCategoria,
+  excluirBordaBanco,
+  excluirProdutoBanco,
+  salvarBordaBanco,
+  salvarOrdemCategoriasBanco,
+  salvarProdutoBanco,
+} from "@/lib/casadilariSupabase";
 
 type TipoProduto = "pizza" | "bebida" | "sobremesa" | "combo" | "adicional";
 type FiltroCardapio = "todos" | "bordas" | string;
@@ -34,7 +43,7 @@ type ProdutoBanco = {
 };
 
 type OpcaoBanco = {
-  id?: string;
+  id: string;
   produto_id: string;
   nome: string;
   preco: number;
@@ -305,20 +314,25 @@ export default function ProdutosPage() {
   );
 
   useEffect(() => {
-    function carregarProdutos() {
+    async function carregarProdutos() {
       if (!pizzaria) return;
 
       setCarregandoProdutos(true);
       setErroProdutos("");
 
-      const categoriasData = ordenarCategorias(carregarCategoriasLocais(pizzaria.id));
-      setCategorias(categoriasData);
-      setProdutos(carregarProdutosLocais(pizzaria.id));
-      setBordas(carregarBordasLocais(pizzaria.id));
-      setCarregandoProdutos(false);
+      try {
+        const cardapio = await carregarCardapio();
+        setCategorias(ordenarCategorias(cardapio.categorias));
+        setProdutos(cardapio.produtos);
+        setBordas(cardapio.bordas);
+      } catch {
+        setErroProdutos("Não foi possível carregar o cardápio.");
+      } finally {
+        setCarregandoProdutos(false);
+      }
     }
 
-    carregarProdutos();
+    void carregarProdutos();
   }, [pizzaria]);
 
   const categoriasOrdenadas = useMemo(() => {
@@ -416,17 +430,29 @@ export default function ProdutosPage() {
     setErroModal(mensagem);
   }
 
+  async function recarregarCardapio() {
+    const cardapio = await carregarCardapio();
+    setCategorias(ordenarCategorias(cardapio.categorias));
+    setProdutos(cardapio.produtos);
+    setBordas(cardapio.bordas);
+  }
+
   function abrirNovaCategoria() {
     setNomeCategoria("");
     setModalCategoriaAberto(true);
   }
 
-  function salvarCategoriasOrdenadas(proximasCategorias: Categoria[]) {
+  async function salvarCategoriasOrdenadas(proximasCategorias: Categoria[]) {
     if (!pizzaria) return;
 
     const categoriasNormalizadas = normalizarOrdemCategorias(proximasCategorias);
     setCategorias(categoriasNormalizadas);
-    salvarCategoriasLocais(pizzaria.id, categoriasNormalizadas);
+    try {
+      await salvarOrdemCategoriasBanco(categoriasNormalizadas);
+    } catch {
+      mostrarErro("Não foi possível salvar a ordem das categorias.");
+      await recarregarCardapio();
+    }
   }
 
   function moverCategoria(categoriaId: string, direcao: -1 | 1) {
@@ -441,7 +467,7 @@ export default function ProdutosPage() {
     proximasCategorias[indexAtual] = proximasCategorias[proximoIndex];
     proximasCategorias[proximoIndex] = categoriaAtual;
 
-    salvarCategoriasOrdenadas(proximasCategorias);
+    void salvarCategoriasOrdenadas(proximasCategorias);
   }
 
   function moverCategoriaPara(categoriaId: string, destinoId: string) {
@@ -460,7 +486,7 @@ export default function ProdutosPage() {
     if (novoIndexDestino < 0) return;
 
     proximasCategorias.splice(novoIndexDestino, 0, categoriaMovida);
-    salvarCategoriasOrdenadas(proximasCategorias);
+    void salvarCategoriasOrdenadas(proximasCategorias);
   }
 
   function categoriaNoPonto(clientX: number, clientY: number) {
@@ -511,7 +537,7 @@ export default function ProdutosPage() {
     setCategoriaDestinoId(null);
   }
 
-  function salvarCategoria(event: FormEvent<HTMLFormElement>) {
+  async function salvarCategoria(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!pizzaria || !nomeCategoria.trim()) return;
 
@@ -532,18 +558,16 @@ export default function ProdutosPage() {
         (maiorOrdem, categoria) => Math.max(maiorOrdem, categoria.ordem ?? 0),
         0
       ) + 1;
-    const proximasCategorias = ordenarCategorias([
-      ...categorias,
-      {
-        id: `local-${crypto.randomUUID()}`,
-        nome: nomeFinal,
-        ordem: proximaOrdem,
-      },
-    ]);
 
-    salvarCategoriasOrdenadas(proximasCategorias);
-    setSalvandoCategoria(false);
-    fecharModalCategoria();
+    try {
+      await criarCategoria(nomeFinal, proximaOrdem);
+      await recarregarCardapio();
+      fecharModalCategoria();
+    } catch {
+      mostrarErro("Não foi possível salvar a categoria.");
+    } finally {
+      setSalvandoCategoria(false);
+    }
   }
 
   function abrirNovoProduto() {
@@ -722,7 +746,7 @@ export default function ProdutosPage() {
       }
     }
 
-    const produtoId = produtoEditando?.id ?? `local-${crypto.randomUUID()}`;
+    const produtoId = produtoEditando?.id ?? "";
     const opcoesProduto = opcoesValidas.map((opcao, index) => ({
       id: `${produtoId}-opcao-${index + 1}` ,
       produto_id: produtoId,
@@ -751,32 +775,33 @@ export default function ProdutosPage() {
       comboPrecoOriginal: ehCombo ? comboSubtotal : null,
     };
 
-    const proximosProdutos = produtoEditando
-      ? produtos.map((produto) =>
-          produto.id === produtoEditando.id ? produtoFinal : produto
-        )
-      : [...produtos, produtoFinal];
-
-    setProdutos(proximosProdutos);
-    salvarProdutosLocais(pizzaria.id, proximosProdutos);
-    setSalvando(false);
-    fecharModal();
+    try {
+      await salvarProdutoBanco(produtoFinal);
+      await recarregarCardapio();
+      fecharModal();
+    } catch {
+      mostrarErro("Não foi possível salvar o produto.");
+    } finally {
+      setSalvando(false);
+    }
   }
 
-  function confirmarExclusaoProduto() {
+  async function confirmarExclusaoProduto() {
     if (!pizzaria || !produtoParaExcluir) return;
 
     setExcluindo(true);
-    const proximosProdutos = produtos.filter(
-      (produto) => produto.id !== produtoParaExcluir.id
-    );
-    setProdutos(proximosProdutos);
-    salvarProdutosLocais(pizzaria.id, proximosProdutos);
-    setProdutoParaExcluir(null);
-    setExcluindo(false);
+    try {
+      await excluirProdutoBanco(produtoParaExcluir.id);
+      await recarregarCardapio();
+      setProdutoParaExcluir(null);
+    } catch {
+      mostrarErro("Não foi possível excluir o produto.");
+    } finally {
+      setExcluindo(false);
+    }
   }
 
-  function salvarBorda(event: FormEvent<HTMLFormElement>) {
+  async function salvarBorda(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     if (!pizzaria || !nomeBorda.trim()) return;
@@ -791,34 +816,37 @@ export default function ProdutosPage() {
     setSalvandoBorda(true);
     setErroProdutos("");
 
-    const bordaFinal: Borda = {
-      id: bordaEditando?.id ?? `local-${crypto.randomUUID()}`,
-      nome: nomeBorda.trim(),
-      preco: precoFinal,
-      ordem:
-        bordaEditando?.ordem ??
-        bordas.reduce((maiorOrdem, borda) => Math.max(maiorOrdem, borda.ordem ?? 0), 0) + 1,
-    };
-
-    const proximasBordas = bordaEditando
-      ? bordas.map((borda) => (borda.id === bordaEditando.id ? bordaFinal : borda))
-      : [...bordas, bordaFinal];
-
-    setBordas(proximasBordas);
-    salvarBordasLocais(pizzaria.id, proximasBordas);
-    setSalvandoBorda(false);
-    fecharModalBorda();
+    try {
+      await salvarBordaBanco({
+        id: bordaEditando?.id,
+        nome: nomeBorda.trim(),
+        preco: precoFinal,
+        ordem:
+          bordaEditando?.ordem ??
+          bordas.reduce((maiorOrdem, borda) => Math.max(maiorOrdem, borda.ordem ?? 0), 0) + 1,
+      });
+      await recarregarCardapio();
+      fecharModalBorda();
+    } catch {
+      mostrarErro("Não foi possível salvar a borda.");
+    } finally {
+      setSalvandoBorda(false);
+    }
   }
 
-  function confirmarExclusaoBorda() {
+  async function confirmarExclusaoBorda() {
     if (!pizzaria || !bordaParaExcluir) return;
 
     setExcluindoBorda(true);
-    const proximasBordas = bordas.filter((borda) => borda.id !== bordaParaExcluir.id);
-    setBordas(proximasBordas);
-    salvarBordasLocais(pizzaria.id, proximasBordas);
-    setBordaParaExcluir(null);
-    setExcluindoBorda(false);
+    try {
+      await excluirBordaBanco(bordaParaExcluir.id);
+      await recarregarCardapio();
+      setBordaParaExcluir(null);
+    } catch {
+      mostrarErro("Não foi possível excluir a borda.");
+    } finally {
+      setExcluindoBorda(false);
+    }
   }
 
   function renderTabelaProdutos(titulo: string, listaProdutos: Produto[]) {
