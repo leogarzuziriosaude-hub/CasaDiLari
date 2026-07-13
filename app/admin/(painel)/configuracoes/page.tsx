@@ -4,6 +4,39 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { useAdminPizzaria } from "@/lib/useAdminPizzaria";
 import { salvarConfiguracaoLoja } from "@/lib/casadilariSupabase";
 
+const prefixoWhatsappLoja = "5521";
+
+function limparTelefone(valor: string) {
+  return valor.replace(/\D/g, "");
+}
+
+function whatsappParaCampo(valor: string) {
+  const numeros = limparTelefone(valor);
+
+  if (numeros.startsWith(prefixoWhatsappLoja)) {
+    return numeros.slice(prefixoWhatsappLoja.length).slice(0, 9);
+  }
+
+  if (numeros.startsWith("21")) {
+    return numeros.slice(2).slice(0, 9);
+  }
+
+  if (numeros.startsWith("55")) {
+    return numeros.slice(2).slice(0, 11);
+  }
+
+  return numeros.slice(0, 9);
+}
+
+function whatsappParaSalvar(valor: string) {
+  const numeros = limparTelefone(valor);
+
+  if (!numeros) return "";
+  if (numeros.startsWith("55")) return numeros;
+  if (numeros.startsWith("21")) return `55${numeros}`;
+  return `${prefixoWhatsappLoja}${numeros}`;
+}
+
 function arquivoParaDataUrl(arquivo: File) {
   return new Promise<string>((resolve, reject) => {
     const leitor = new FileReader();
@@ -33,7 +66,7 @@ export default function ConfiguracoesPage() {
 
     const timerId = window.setTimeout(() => {
       setNomeLoja(pizzaria.nome ?? "");
-      setWhatsapp(pizzaria.whatsapp ?? "");
+      setWhatsapp(whatsappParaCampo(pizzaria.whatsapp ?? ""));
       setEnderecoLoja(pizzaria.endereco ?? "");
       setTempoEntrega(pizzaria.tempo_entrega_texto ?? "");
       setHoraEncomendaInicio(pizzaria.encomenda_hora_inicio ?? "18:00");
@@ -81,7 +114,7 @@ export default function ConfiguracoesPage() {
       }),
       nome: nomeLoja.trim() || "Minha pizzaria",
       slug: nomeLoja.trim() || "Minha pizzaria",
-      whatsapp: whatsapp.trim(),
+      whatsapp: whatsappParaSalvar(whatsapp),
       endereco: enderecoLoja.trim(),
       status_aberto: statusAberto,
       tempo_entrega_texto: tempoEntrega.trim() || null,
@@ -231,13 +264,18 @@ export default function ConfiguracoesPage() {
                 <span className="mb-2 block text-sm font-black text-zinc-200">
                   WhatsApp
                 </span>
-                <input
-                  value={whatsapp}
-                  onChange={(event) => setWhatsapp(event.target.value)}
-                  placeholder="Ex: (21) 99999-9999"
-                  inputMode="tel"
-                  className="h-12 w-full rounded-2xl border border-white/10 bg-[#0f0c0b] px-4 text-sm font-bold text-white outline-none focus:border-[#ff7a3d]"
-                />
+                <div className="flex h-12 overflow-hidden rounded-2xl border border-white/10 bg-[#0f0c0b] focus-within:border-[#ff7a3d]">
+                  <span className="grid shrink-0 place-items-center border-r border-white/10 px-4 text-sm font-black text-[#ffb26a]">
+                    +55 21
+                  </span>
+                  <input
+                    value={whatsapp}
+                    onChange={(event) => setWhatsapp(whatsappParaCampo(event.target.value))}
+                    placeholder="99999-9999"
+                    inputMode="tel"
+                    className="min-w-0 flex-1 bg-transparent px-4 text-sm font-bold text-white outline-none"
+                  />
+                </div>
               </label>
 
               <label>

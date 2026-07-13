@@ -279,7 +279,10 @@ function carregarConfigPizzariaLocal(): Pizzaria {
 }
 
 function telefoneParaWhatsApp(valor: string) {
-  return valor.replace(/\D/g, "");
+  const numeros = valor.replace(/\D/g, "");
+  if (!numeros) return "";
+  if (numeros.startsWith("55")) return numeros;
+  return `55${numeros}`;
 }
 
 function pedidosLocaisKey() {
